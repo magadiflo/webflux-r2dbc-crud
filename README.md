@@ -53,3 +53,32 @@ Las dependencias que se usaron en el proyecto son las siguientes:
     </dependency>
 </dependencies>
 ````
+
+## Creando base de datos de Postgres en Docker usando compose
+
+En la raíz del proyecto creamos el archivo `compose.yml` y agregamos la siguiente configuración para crear un
+contenedor con la base de datos de PostgreSQL que usaremos en esta aplicación:
+
+````yml
+services:
+  postgres:
+    container_name: postgres
+    image: postgres:15.2-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: db_webflux_r2dbc
+      POSTGRES_USER: magadiflo
+      POSTGRES_PASSWORD: magadiflo
+    ports:
+      - 5433:5432
+    expose:
+      - 5433
+````
+
+Para levantar el contenedor, debemos posicionarnos mediante la terminal en la raíz donde se encuentra ubicado el archivo
+`compose.yml` y luego ejecutar el comando siguiente:
+
+````bash
+M:\PROGRAMACION\DESARROLLO_JAVA_SPRING\02.youtube\10.joas_dev\webflux-r2dbc-crud (feature/crud)
+$ docker compose up -d
+````
