@@ -158,3 +158,62 @@ logging:
     io.r2dbc.postgresql.QUERY: DEBUG
     io.r2dbc.postgresql.PARAM: DEBUG
 ````
+
+## Creando e inicializando esquema de la base de datos
+
+En el directorio `/resources` crearemos un archivo llamado `schema.sql` donde definiremos las tablas `authors` y
+`books` y su relación de muchos a muchos, con el que generamos una tabla intermedia `book_authors`:
+
+````sql
+DROP TABLE IF EXISTS book_authors;
+DROP TABLE IF EXISTS books;
+DROP TABLE IF EXISTS authors;
+
+CREATE TABLE authors(
+    id SERIAL,
+    first_name VARCHAR(45) NOT NULL,
+    last_name VARCHAR(45) NOT NULL,
+    birthdate DATE NOT NULL,
+    CONSTRAINT pk_authors PRIMARY KEY(id)
+);
+
+CREATE TABLE books(
+    id SERIAL,
+    title VARCHAR(255) NOT NULL,
+    publication_date DATE NOT NULL,
+    online_availability BOOLEAN DEFAULT FALSE,
+    CONSTRAINT pk_books PRIMARY KEY(id)
+);
+
+CREATE TABLE book_authors(
+    book_id INTEGER NOT NULL,
+    author_id INTEGER NOT NULL,
+    CONSTRAINT fk_books_book_authors FOREIGN KEY(book_id) REFERENCES books(id),
+    CONSTRAINT fk_authors_book_authors FOREIGN KEY(author_id) REFERENCES authors(id)
+);
+````
+
+### Inicializando esquema
+
+Crearemos una clase de configuración `/configuration/AppConfig.java` donde definiremos un `@Bean` que nos retornará
+un objeto del tipo `ConnectionFactoryInitializer`.
+
+`Spring Data R2DBC ConnectionFactoryInitializer` proporciona una manera conveniente de configurar e inicializar una
+fábrica de conexiones para una conexión de base de datos reactiva en una aplicación Spring. Escaneará el `schema.sql`
+en el classpath y ejecutará el script SQL para inicializar la base de datos cuando la base de datos esté conectada.
+
+````java
+
+@Configuration
+public class AppConfig {
+    @Bean
+    public ConnectionFactoryInitializer initializer(ConnectionFactory connectionFactory) {
+        ConnectionFactoryInitializer initializer = new ConnectionFactoryInitializer();
+        initializer.setConnectionFactory(connectionFactory);
+        initializer.setDatabasePopulator(new ResourceDatabasePopulator(new ClassPathResource("schema.sql")));
+        return initializer;
+    }
+}
+````
+
+> Si hasta este punto ejecutamos la aplicación, veremos que la ejecución es exitosa y las tablas se crean correctamente.
