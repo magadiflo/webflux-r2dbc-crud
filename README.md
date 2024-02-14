@@ -82,3 +82,52 @@ Para levantar el contenedor, debemos posicionarnos mediante la terminal en la ra
 M:\PROGRAMACION\DESARROLLO_JAVA_SPRING\02.youtube\10.joas_dev\webflux-r2dbc-crud (feature/crud)
 $ docker compose up -d
 ````
+
+## [Configurando la base de datos R2DBC y PostgreSQL](https://www.bezkoder.com/spring-boot-r2dbc-postgresql/)
+
+En el `application.yml` agregamos las siguientes configuraciones:
+
+````yml
+server:
+  port: 8080
+
+spring:
+  application:
+    name: webflux-r2dbc-crud
+
+  r2dbc:
+    url: r2dbc:postgresql://localhost:5433/db_webflux_r2dbc
+    username: magadiflo
+    password: magadiflo
+````
+
+Existe otra anotación que podríamos haberla incluído: `spring.data.r2dbc.repositories.enabled=true`, quien determina la
+activación de los repositorios `R2DBC` en una aplicación Spring Boot. **De forma predeterminada, la compatibilidad con
+el repositorio R2DBC está habilitada en una aplicación Spring Boot.** Si desea deshabilitar la compatibilidad con el
+repositorio R2DBC, puede establecer la propiedad en falso de la siguiente manera:
+`spring.data.r2dbc.repositories.enabled=false`.
+
+La URL de conexión está configurada en `r2dbc:postgresql://localhost:5433/db_webflux_r2dbc`, donde:
+
+- `r2dbc`, indicamos que usaremos `r2dbc` para conectarnos a la base de datos. Recordar que cuando usamos una aplicación
+  normal de Spring Boot (no reactiva) usamos `jdbc`.
+- `db_webflux_r2dbc`, es el nombre de la base de datos que creamos en Docker.
+- `5433`, es el puerto que estamos exponiendo del contenedor de PostgreSQL. Recordar que el puerto por defecto de una
+  base de datos de PostgreSQL es `5432`, pero en mi caso, como estoy usando contenedores de Docker, el puerto que expone
+  el contenedor de mi base de datos lo configuré al `5433`.
+
+Las propiedades `spring.r2dbc.username` y `spring.r2dbc.password` proporcionan las credenciales para conectarse a la
+base de datos.
+
+### @EnableR2dbcRepositories
+
+`@EnableR2dbcRepositories` es una anotación Spring que se utiliza para habilitar repositorios R2DBC en una aplicación
+Spring Boot. Proporciona una manera conveniente de crear una capa de repositorio en una aplicación Spring Boot que usa
+R2DBC para interactuar con una base de datos.
+
+> Debido a que la compatibilidad con el repositorio R2DBC está habilitada en nuestra aplicación Spring Boot de forma
+> predeterminada (`spring.data.r2dbc.repositories.enabled=true`), **@EnableR2dbcRepositories no es necesario.**
+
+La anotación `@EnableR2dbcRepositories` podría agregarse a una clase de configuración en su aplicación, generalmente a
+la clase principal que está anotada con `@SpringBootApplication`.
+
