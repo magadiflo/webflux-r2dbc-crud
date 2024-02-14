@@ -131,3 +131,30 @@ R2DBC para interactuar con una base de datos.
 La anotación `@EnableR2dbcRepositories` podría agregarse a una clase de configuración en su aplicación, generalmente a
 la clase principal que está anotada con `@SpringBootApplication`.
 
+## Habilitando WebFlux
+
+Si usa `spring-boot-starter-webflux`, la configuración se realiza automáticamente a través de
+`ReactiveWebServerFactoryAutoConfiguration` y `WebFluxAutoConfiguration`, por lo que no necesita anotar una
+clase de configuración con `@EnableWebFlux`.
+
+Cuando usa `spring-webflux` sin `spring-boot`, **necesita agregar `@EnableWebFlux` en una clase `@Configuration`
+para importar la configuración de `Spring WebFlux` desde `WebFluxConfigurationSupport`.**
+
+### ¿Qué hace la anotación @EnableWebFlux?
+
+Usamos `@EnableWebFlux` para habilitar la compatibilidad con aplicaciones web reactivas utilizando el framework de
+`Spring WebFlux`. Agregar esta anotación a una clase `@Configuration` importa la configuración de `Spring WebFlux`
+desde `WebFluxConfigurationSupport` que permite el uso de controladores anotados y endpoints funcionales.
+
+> Por lo tanto, en la mayoría de los casos, cuando estás construyendo una aplicación `Spring Boot con Spring WebFlux`,
+> **no necesitas anotar tu clase de configuración principal con** `@EnableWebFlux`, ya que Spring Boot se encargará de
+> habilitar WebFlux automáticamente.
+
+## Habilitando logging para ver los queries y parameters en las consultas a PostgreSQL
+
+````yml
+logging:
+  level:
+    io.r2dbc.postgresql.QUERY: DEBUG
+    io.r2dbc.postgresql.PARAM: DEBUG
+````
