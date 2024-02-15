@@ -217,3 +217,64 @@ public class AppConfig {
 ````
 
 > Si hasta este punto ejecutamos la aplicación, veremos que la ejecución es exitosa y las tablas se crean correctamente.
+
+## Definiendo Modelo de Datos
+
+Crearemos los modelos de datos correspondiente a las tablas que definimos en el `schema.sql`. Estas clases serán creadas
+en el directorio `/persistence/entity`:
+
+````java
+
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@Data
+@Table(name = "authors")
+public class Author {
+    @Id
+    private Integer id;
+    private String firstName;
+    private String lastName;
+    @JsonFormat(pattern = "dd/MM/yyyy")
+    private LocalDate birthdate;
+}
+````
+
+````java
+
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@Data
+@Table(name = "books")
+public class Book {
+    @Id
+    private Integer id;
+    private String title;
+    @JsonFormat(pattern = "dd/MM/yyyy")
+    private LocalDate publicationDate;
+    private Boolean onlineAvailability;
+}
+````
+
+````java
+
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@Data
+@Table(name = "book_authors")
+public class BookAuthor {
+    private Integer bookId;
+    private Integer authorId;
+}
+````
+
+> Con respecto a la clase de entidad `BookAuthor`, el tutor del curso menciona que en `WebFlux` no ha
+> encontrado la manera de que exista un mapeo de `muchos a muchos`, así que lo que optará por hacer es crear una clase
+> de entidad donde definamos los dos atributos que tiene la tabla `book_authors` y posteriormente las consultas
+> realizarlas con SQL nativo.
+>
+> Otro punto que menciona el autor es que la idea de una tabla detalle (resultante de la relación de muchos a muchos),
+> es que no tenga una clave primaria, sino más bien solo tenga las claves foráneas correspondiente a las tablas
+> principales.
