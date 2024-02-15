@@ -521,3 +521,96 @@ public interface IBookProjection {
     }
 }
 ````
+
+## Creando DTOs
+
+A continuación mostramos todos los dtos creados usando `record`. Los primeros records creados son para las consultas
+que realizaremos usando `criteria`, es decir consultas que serán elaboradas de manera dinámica:
+
+````java
+public record AuthorCriteria(String firstName, Boolean lastName) {
+}
+````
+
+````java
+public record AuthorFilter(String q) {
+}
+````
+
+````java
+public record BookCriteria(String q, LocalDate publicationDate) {
+}
+````
+
+````java
+public record RegisterAuthorDTO(String firstName,
+                                String lastName,
+                                @JsonFormat(pattern = "dd/MM/yyyy") LocalDate birthdate) {
+}
+````
+
+En el siguiente `record` se ha definido un `constructor compacto` para poder darle un valor por defecto al atributo
+`onlineAvailability` cuando se cree el objeto del record con valor `null` para dicho atributo:
+
+````java
+public record RegisterBookDTO(String title,
+                              @JsonFormat(pattern = "dd/MM/yyyy") LocalDate publicationDate,
+                              List<Integer> authors,
+                              Boolean onlineAvailability) {
+    // Constructor compacto
+    // Las asignaciones se realizan de manera automática
+    public RegisterBookDTO {
+        onlineAvailability = onlineAvailability != null && onlineAvailability;
+    }
+}
+````
+
+````java
+public record UpdateAuthorDTO(String firstName,
+                              String lastName,
+                              @JsonFormat(pattern = "dd/MM/yyyy") LocalDate birthdate) {
+}
+````
+
+## Creando clases adicionales
+
+Crearemos una clase llamada `ApiException` con el que unificaremos los mensajes de error y el status del mismo. Es
+importante que nuestra clase de excepción extienda de `RuntimeException`, ya que estamos trabajando con programación
+reactiva:
+
+````java
+
+@Getter // Anotación de lombok
+public class ApiException extends RuntimeException {
+
+    private final String message;
+    private final HttpStatus httpStatus;
+
+    public ApiException(String message, HttpStatus httpStatus) {
+        super(message);
+        this.message = message;
+        this.httpStatus = httpStatus;
+    }
+
+    @Override
+    public String toString() {
+        return this.message;
+    }
+}
+````
+
+Creamos la clase `AppConfig` donde definiremos el `@Bean` del `ModelMapper` que nos retornará una instancia de esa
+clase:
+
+````java
+
+@Configuration
+public class AppConfig {
+    @Bean
+    public ModelMapper modelMapper() {
+        return new ModelMapper();
+    }
+}
+````
+
+
