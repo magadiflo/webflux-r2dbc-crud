@@ -195,7 +195,7 @@ CREATE TABLE book_authors(
 
 ### Inicializando esquema
 
-Crearemos una clase de configuración `/configuration/AppConfig.java` donde definiremos un `@Bean` que nos retornará
+Crearemos una clase de configuración `/configuration/SchemaConfig.java` donde definiremos un `@Bean` que nos retornará
 un objeto del tipo `ConnectionFactoryInitializer`.
 
 `Spring Data R2DBC ConnectionFactoryInitializer` proporciona una manera conveniente de configurar e inicializar una
@@ -205,7 +205,7 @@ en el classpath y ejecutará el script SQL para inicializar la base de datos cua
 ````java
 
 @Configuration
-public class AppConfig {
+public class SchemaConfig {
     @Bean
     public ConnectionFactoryInitializer initializer(ConnectionFactory connectionFactory) {
         ConnectionFactoryInitializer initializer = new ConnectionFactoryInitializer();
