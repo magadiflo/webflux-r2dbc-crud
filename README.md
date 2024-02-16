@@ -613,4 +613,204 @@ public class AppConfig {
 }
 ````
 
+## Creando Servicios
 
+Se definirán las interfaces y las implementaciones de de las entidades Book y Author. Solo implementaremos el servicio
+`AuthorServiceImpl`:
+
+````java
+public interface IAuthorService {
+    Flux<Author> findAll(AuthorCriteria authorCriteria);
+
+    Mono<IAuthorProjection> findAuthorById(Integer authorId);
+
+    Mono<Page<IAuthorProjection>> findAllToPage(AuthorFilter authorFilter, Pageable pageable);
+
+    Mono<Integer> saveAuthor(RegisterAuthorDTO registerAuthorDTO);
+
+    Mono<IAuthorProjection> updateAuthor(Integer authorId, UpdateAuthorDTO updateAuthorDTO);
+
+    Mono<Void> deleteAuthor(Integer authorId);
+}
+````
+
+````java
+public interface IBookService {
+    Mono<Page<IBookProjection>> findAllToPage(BookCriteria bookCriteria, Pageable pageable);
+
+    Mono<IBookProjection> findBookById(Integer bookId);
+
+    Mono<Void> saveBook(RegisterBookDTO registerBookDTO);
+
+    Mono<Void> deleteBook(Integer bookId);
+}
+````
+
+Ahora implementaremos las interfaces anteriores:
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@Service
+public class AuthorServiceImpl implements IAuthorService {
+
+    private final IAuthorRepository authorRepository;
+    private final IBookRepository bookRepository;
+    private final ModelMapper modelMapper;
+
+    @Override
+    @Transactional(readOnly = true)
+    public Flux<Author> findAll(AuthorCriteria authorCriteria) {
+        return this.authorRepository.findAll();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Mono<IAuthorProjection> findAuthorById(Integer authorId) {
+        return this.authorRepository.findByAuthorId(authorId)
+                .switchIfEmpty(Mono.error(new ApiException("No hay resultados con authorId: %d".formatted(authorId), HttpStatus.NOT_FOUND)));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Mono<Page<IAuthorProjection>> findAllToPage(AuthorFilter authorFilter, Pageable pageable) {
+        return this.authorRepository.findByQ(authorFilter.q(), pageable)
+                .collectList()
+                .switchIfEmpty(Mono.error(new ApiException("No hay resultados", HttpStatus.NO_CONTENT)))
+                .zipWith(this.authorRepository.findCountByQ(authorFilter.q()),
+                        (iAuthorProjections, count) -> new PageImpl<>(iAuthorProjections, pageable, count));
+
+    }
+
+    @Override
+    @Transactional
+    public Mono<Integer> saveAuthor(RegisterAuthorDTO registerAuthorDTO) {
+        return Mono.just(registerAuthorDTO)
+                .flatMap(dto -> {
+                    try {
+                        return Mono.just(this.modelMapper.map(dto, Author.class));
+                    } catch (MappingException e) {
+                        log.error(e.getMessage());
+                        return Mono.error(new ApiException("Error al insertar datos", HttpStatus.BAD_REQUEST));
+                    }
+                })
+                .flatMap(this.authorRepository::saveAuthor);
+    }
+
+    @Override
+    @Transactional
+    public Mono<IAuthorProjection> updateAuthor(Integer authorId, UpdateAuthorDTO updateAuthorDTO) {
+        return Mono.just(updateAuthorDTO)
+                .flatMap(dto -> {
+                    try {
+                        Author authorEntity = this.modelMapper.map(dto, Author.class);
+                        authorEntity.setId(authorId);
+                        return Mono.just(authorEntity);
+                    } catch (MappingException e) {
+                        return Mono.error(new ApiException("Error al actualizar", HttpStatus.BAD_REQUEST));
+                    }
+                })
+                .flatMap(this.authorRepository::updateAuthor)
+                .flatMap(this.authorRepository::findByAuthorId);
+    }
+
+    @Override
+    @Transactional
+    public Mono<Void> deleteAuthor(Integer authorId) {
+        /*
+        return bookRepository.existBookAuthorByAuthorId(authorId)
+            .flatMap(existBookAuthor -> {
+
+                if (existBookAuthor) {
+                    return bookRepository.deleteBookAuthorByAuthorId(authorId);
+                }
+
+                return bookRepository.deleteBookAuthorByAuthorId(authorId)
+                        .then(authorRepository.deleteById(authorId));
+
+            });
+         */
+        return null;
+    }
+}
+````
+
+En la implementación del servicio `BookServiceImpl` solo dejaremos definida la clase. El código comentado es porque
+en el tutorial original no está implementado:
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@Service
+public class BookServiceImpl implements IBookService {
+
+    private final IBookRepository bookRepository;
+    private final ModelMapper modelMapper;
+
+    @Override
+    public Mono<Page<IBookProjection>> findAllToPage(BookCriteria bookCriteria, Pageable pageable) {
+        /*
+        return bookRepository.findAllToPage(bookCriteria,pageable)
+        		.collectList()
+        		.switchIfEmpty(Mono.error(new ApiException("Not result", HttpStatus.NO_CONTENT)))
+        		.zipWith(bookRepository.findCountBookAuthorByCriteria(bookCriteria))
+        		.map(result -> new PageImpl<>(result.getT1(), pageable, result.getT2()));
+         */
+        return null;
+    }
+
+    @Override
+    public Mono<IBookProjection> findBookById(Integer bookId) {
+        //return bookRepository.findByBookId(bookId);
+        return null;
+    }
+
+    @Override
+    public Mono<Void> saveBook(RegisterBookDTO registerBookDTO) {
+        /*
+        Book book = null;
+
+		try {
+			book = modelMapper.map(registerBookDto, Book.class);
+		} catch (Exception e) {
+			log.error(e.getMessage());
+			return Mono.error(new ApiException("Error in Detail", HttpStatus.NOT_FOUND));
+		}
+
+		return bookRepository.save(book).flatMap(bookEntity -> {
+			List<BookAuthor> bookAuthors = registerBookDto.getAuthors().stream().map(authorId -> {
+
+				return BookAuthor.builder()
+						.authorId(authorId)
+						.bookId(bookEntity.getBookId())
+						.build();
+
+			}).collect(Collectors.toList());
+			return bookRepository.saveAllBookAuthor(bookAuthors).collectList().then();
+		});
+         */
+        return null;
+    }
+
+    @Override
+    public Mono<Void> deleteBook(Integer bookId) {
+        /*
+        return bookRepository.existBookAuthorByBookId(bookId)
+		.flatMap(existBookAuthor -> {
+
+			if(!existBookAuthor) {
+
+				return bookRepository.deleteById(bookId);
+			}
+
+			return bookRepository.deleteBookAuthorByBookId(bookId)
+					.then( bookRepository.deleteById(bookId));
+
+		});
+         */
+        return null;
+    }
+}
+````
