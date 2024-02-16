@@ -814,3 +814,48 @@ public class BookServiceImpl implements IBookService {
     }
 }
 ````
+
+## Creando un Value Object (VO)
+
+Crearemos el `value object (VO)` que agrupará las características de un `Book` y quien además implementará la interfaz
+de proyección `IBookProjection`:
+
+````java
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@Setter
+@ToString
+public class BookVO implements IBookProjection {
+    private Integer id;
+    private String title;
+    private LocalDate publicationDate;
+    private String concatAuthors;
+    private Boolean onlineAvailability;
+
+    @Override
+    public Integer getId() {
+        return this.id;
+    }
+
+    @Override
+    public String getTitle() {
+        return this.title;
+    }
+
+    @Override
+    public LocalDate getPublicationDate() {
+        return this.publicationDate;
+    }
+
+    @Override
+    public Boolean getOnlineAvailability() {
+        return this.onlineAvailability;
+    }
+
+    @Override
+    public String getConcatAuthors() {
+        return this.concatAuthors;
+    }
+}
+````
