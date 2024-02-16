@@ -11,6 +11,7 @@ import org.modelmapper.ModelMapper;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Mono;
 
 @Slf4j
@@ -22,6 +23,7 @@ public class BookServiceImpl implements IBookService {
     private final ModelMapper modelMapper;
 
     @Override
+    @Transactional(readOnly = true)
     public Mono<Page<IBookProjection>> findAllToPage(BookCriteria bookCriteria, Pageable pageable) {
         /*
         return bookRepository.findAllToPage(bookCriteria,pageable)
@@ -34,12 +36,14 @@ public class BookServiceImpl implements IBookService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Mono<IBookProjection> findBookById(Integer bookId) {
         //return bookRepository.findByBookId(bookId);
         return null;
     }
 
     @Override
+    @Transactional
     public Mono<Void> saveBook(RegisterBookDTO registerBookDTO) {
         /*
         Book book = null;
@@ -67,6 +71,7 @@ public class BookServiceImpl implements IBookService {
     }
 
     @Override
+    @Transactional
     public Mono<Void> deleteBook(Integer bookId) {
         /*
         return bookRepository.existBookAuthorByBookId(bookId)
