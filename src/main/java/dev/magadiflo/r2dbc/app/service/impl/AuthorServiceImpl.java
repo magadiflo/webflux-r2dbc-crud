@@ -62,7 +62,13 @@ public class AuthorServiceImpl implements IAuthorService {
         return Mono.just(registerAuthorDTO)
                 .flatMap(dto -> {
                     try {
-                        return Mono.just(this.modelMapper.map(dto, Author.class));
+//                        Author author = this.modelMapper.map(dto, Author.class);// Marca error al hacer el mapeo, al parecer es por el formato en las fecha, no encontré la solución
+                        Author author = Author.builder()
+                                .firstName(dto.firstName())
+                                .lastName(dto.lastName())
+                                .birthdate(dto.birthdate())
+                                .build();
+                        return Mono.just(author);
                     } catch (MappingException e) {
                         log.error(e.getMessage());
                         return Mono.error(new ApiException("Error al insertar datos", HttpStatus.BAD_REQUEST));
