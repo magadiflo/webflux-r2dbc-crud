@@ -72,7 +72,7 @@ services:
     ports:
       - 5433:5432
     expose:
-      - 5433
+      - 5432
 ````
 
 Para levantar el contenedor, debemos posicionarnos mediante la terminal en la raíz donde se encuentra ubicado el archivo
