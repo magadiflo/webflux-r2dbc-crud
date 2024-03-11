@@ -10,4 +10,4 @@ services:
     ports:
       - 5433:5432
     expose:
-      - 5433
+      - 5432
