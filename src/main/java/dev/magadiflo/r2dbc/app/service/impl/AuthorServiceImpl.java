@@ -65,11 +65,12 @@ public class AuthorServiceImpl implements IAuthorService {
     @Override
     @Transactional
     public Mono<IAuthorProjection> updateAuthor(Integer authorId, UpdateAuthorDTO updateAuthorDTO) {
-        return Mono.just(updateAuthorDTO)
-                .flatMap(dto -> this.authorMapper.toAuthor(dto, authorId))
+        return this.authorRepository.findById(authorId)
+                .flatMap(authorDB -> this.authorMapper.toAuthor(updateAuthorDTO, authorId))
                 .flatMap(this.authorRepository::updateAuthor)
                 .doOnNext(affectedRows -> log.info("Filas afectadas en el update: {}", affectedRows))
-                .flatMap(affectedRows -> this.authorRepository.findByAuthorId(authorId));
+                .flatMap(affectedRows -> this.authorRepository.findByAuthorId(authorId))
+                .switchIfEmpty(Mono.error(new ApiException("No se encontró el author con id %s para actualizar".formatted(authorId), HttpStatus.NOT_FOUND)));
     }
 
     @Override
