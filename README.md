@@ -299,12 +299,23 @@ Ahora, mostramos la creación del repositorio `IAuthorRepository` para la entida
 
 ````java
 public interface IAuthorRepository extends ReactiveCrudRepository<Author, Integer> {
+
+    /**
+     * @param author
+     * @return affectedRows
+     */
+    @Modifying
     @Query(value = """
             INSERT INTO authors(first_name, last_name, birthdate)
             VALUES(:#{#author.firstName}, :#{#author.lastName}, :#{#author.birthdate})
             """)
     Mono<Integer> saveAuthor(@Param(value = "author") Author author);
 
+    /**
+     * @param author
+     * @return affectedRows
+     */
+    @Modifying
     @Query(value = """
             UPDATE authors
             SET first_name = :#{#author.firstName},
@@ -342,20 +353,26 @@ public interface IAuthorRepository extends ReactiveCrudRepository<Author, Intege
 En la interfaz anterior hemos definido métodos personalizados, donde:
 
 - Usamos la anotación `@Query()` para definir nuestra consulta.
+
+
 - La consulta usada en la anotación `@Query()` es `SQL nativo`, ya que estamos trabajando con `Spring Data R2DBC`
   y no con `Spring Data JPA`, aunque dicho sea de paso, con Spring Data JPA también se puede trabajar con `SQL nativo`
   solo que en ese caso es necesario agregar el atributo `nativeQuery` en la anotación de la siguiente manera
   `@Query(value = "TU_CONSULTA_SQL", nativeQuery = true)`, mientras que con `Spring Data R2DBC` usamos
   la consulta SQL directamente en la anotación.
-- En `Spring Data JPA` cuando definimos una consulta personalizada, a través de la anotación `@Query()`, que modifica
-  los registros de la base de datos, ya sea usando JPQL o SQL nativo; consultas como `INSERT, UPDATE o DELETE` es
-  necesario agregar al método personalizado la anotación `@Modifying`. En nuestro caso, como estamos usando
-  `Spring Data R2DBC`, no es necesario agregar dicha anotación, por eso es que nuestros métodos `saveAuthor()` y
-  `updateAuthor()` carecen de él.
+
+
+- La anotación `@Modifying` indica que un método de consulta debe considerarse una consulta de modificación que no
+  devuelve nada o la cantidad de `filas afectadas` por la consulta. Los métodos de consulta anotados con `@Modifying`
+  suelen ser instrucciones `INSERT, UPDATE, DELETE y DDL` que no devuelven resultados tabulares.
+
+
 - Normalmente, cuando definimos parámetros a nuestros métodos de repositorio, si son pocos parámetros podemos definirlos
   uno a uno, pero si son muchos parámetros, podemos pasarle directamente un objeto que tendrá las propiedades que
   usaremos en la consulta. En nuestro caso, observemos la firma de nuestro método saveAuthor()
   `Mono<Integer> saveAuthor(@Param(value = "author") Author author)`, le estamos pasando la clase Author.
+
+
 - Para usar las propiedades del objeto pasado por parámetro dentro de la consulta SQL usamos la siguiente expresión:
   `:#{#author.firstName}`, donde `author` es el parámetro definido en el método y `firstName` es la propiedad del
   objeto.
@@ -528,24 +545,7 @@ A continuación mostramos todos los dtos creados usando `record`. Los primeros r
 que realizaremos usando `criteria`, es decir consultas que serán elaboradas de manera dinámica:
 
 ````java
-public record AuthorCriteria(String firstName, Boolean lastName) {
-}
-````
-
-````java
-public record AuthorFilter(String q) {
-}
-````
-
-````java
 public record BookCriteria(String q, LocalDate publicationDate) {
-}
-````
-
-````java
-public record RegisterAuthorDTO(String firstName,
-                                String lastName,
-                                @JsonFormat(pattern = "dd/MM/yyyy") LocalDate birthdate) {
 }
 ````
 
@@ -566,9 +566,56 @@ public record RegisterBookDTO(String title,
 ````
 
 ````java
-public record UpdateAuthorDTO(String firstName,
-                              String lastName,
-                              @JsonFormat(pattern = "dd/MM/yyyy") LocalDate birthdate) {
+public record AuthorCriteria(String firstName, Boolean lastName) {
+}
+````
+
+````java
+public record AuthorFilter(String q) {
+}
+````
+
+Para el siguiente dto no vamos a usar un `record` sino más bien una clase normal de java. La razón del porqué este
+record se creará usando una clase normal de java es porque vamos a usarlo para mapearlo a una entidad del tipo `Author`
+y para dicho mapeo vamos a usar la dependencia de `ModelMapper`. Esta dependencia nos ayudará a mapear automáticamente
+una clase java en otra.
+
+Si uso un `record` con la dependencia `ModelMapper`, el mapeo va a fallar, los atributos de la clase de destino se
+mostrarán en `null`, en otras palabras, según las pruebas que hice, `ModelMapper` no soporta el uso de `records`
+para realizar el mapeo.
+
+````java
+
+@ToString
+@AllArgsConstructor
+@NoArgsConstructor
+@Builder
+@Setter
+@Getter
+public class RegisterAuthorDTO {
+    private String firstName;
+    private String lastName;
+    @JsonFormat(pattern = "dd/MM/yyyy")
+    private LocalDate birthdate;
+}
+````
+
+El siguiente record también será creado usando una clase simple de java por la misma razón que se mencionó
+en el apartado superior.
+
+````java
+
+@ToString
+@AllArgsConstructor
+@NoArgsConstructor
+@Builder
+@Setter
+@Getter
+public class UpdateAuthorDTO {
+    private String firstName;
+    private String lastName;
+    @JsonFormat(pattern = "dd/MM/yyyy")
+    private LocalDate birthdate;
 }
 ````
 
@@ -656,8 +703,7 @@ Ahora implementaremos las interfaces anteriores:
 public class AuthorServiceImpl implements IAuthorService {
 
     private final IAuthorRepository authorRepository;
-    private final IBookRepository bookRepository;
-    private final ModelMapper modelMapper;
+    private final AuthorMapper authorMapper;
 
     @Override
     @Transactional(readOnly = true)
@@ -687,32 +733,19 @@ public class AuthorServiceImpl implements IAuthorService {
     @Transactional
     public Mono<Integer> saveAuthor(RegisterAuthorDTO registerAuthorDTO) {
         return Mono.just(registerAuthorDTO)
-                .flatMap(dto -> {
-                    try {
-                        return Mono.just(this.modelMapper.map(dto, Author.class));
-                    } catch (MappingException e) {
-                        log.error(e.getMessage());
-                        return Mono.error(new ApiException("Error al insertar datos", HttpStatus.BAD_REQUEST));
-                    }
-                })
-                .flatMap(this.authorRepository::saveAuthor);
+                .flatMap(dto -> this.authorMapper.toAuthor(registerAuthorDTO))
+                .flatMap(this.authorRepository::saveAuthor)
+                .doOnNext(affectedRows -> log.info("Filas afectadas en el insert: {}", affectedRows));
     }
 
     @Override
     @Transactional
     public Mono<IAuthorProjection> updateAuthor(Integer authorId, UpdateAuthorDTO updateAuthorDTO) {
         return Mono.just(updateAuthorDTO)
-                .flatMap(dto -> {
-                    try {
-                        Author authorEntity = this.modelMapper.map(dto, Author.class);
-                        authorEntity.setId(authorId);
-                        return Mono.just(authorEntity);
-                    } catch (MappingException e) {
-                        return Mono.error(new ApiException("Error al actualizar", HttpStatus.BAD_REQUEST));
-                    }
-                })
+                .flatMap(dto -> this.authorMapper.toAuthor(dto, authorId))
                 .flatMap(this.authorRepository::updateAuthor)
-                .flatMap(this.authorRepository::findByAuthorId);
+                .doOnNext(affectedRows -> log.info("Filas afectadas en el update: {}", affectedRows))
+                .flatMap(affectedRows -> this.authorRepository.findByAuthorId(authorId));
     }
 
     @Override
@@ -732,6 +765,42 @@ public class AuthorServiceImpl implements IAuthorService {
             });
          */
         return null;
+    }
+}
+````
+
+La clase de servicio anterior está haciendo uso de una clase `AuthorMapper` para realizar el mapeo de un dto a una
+entidad persistente. Esta clase, además es la que usa la dependencia que agregamos en el `pom.xml`, el `ModelMapper`
+quien nos facilitará en hacer el mapeo de una clase dto a una clase de tipo persistente.
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@Component
+public class AuthorMapper {
+
+    private final ModelMapper modelMapper;
+
+    public Mono<Author> toAuthor(RegisterAuthorDTO registerAuthor) {
+        try {
+            Author author = this.modelMapper.map(registerAuthor, Author.class);
+            return Mono.just(author);
+        } catch (Exception e) {
+            log.error("Error en mapeo para registrar author:: {}", e.getMessage());
+            return Mono.error(new ApiException("Error al mapear entidad Author", HttpStatus.BAD_REQUEST));
+        }
+    }
+
+    public Mono<Author> toAuthor(UpdateAuthorDTO registerAuthor, Integer authorId) {
+        try {
+            Author author = this.modelMapper.map(registerAuthor, Author.class);
+            author.setId(authorId);
+            return Mono.just(author);
+        } catch (Exception e) {
+            log.error("Error en mapeo para actualizar author:: {}", e.getMessage());
+            return Mono.error(new ApiException("Error al mapear entidad Author", HttpStatus.BAD_REQUEST));
+        }
     }
 }
 ````
@@ -821,6 +890,7 @@ Crearemos el `value object (VO)` que agrupará las características de un `Book`
 de proyección `IBookProjection`:
 
 ````java
+
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder

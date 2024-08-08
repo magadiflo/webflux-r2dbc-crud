@@ -8,7 +8,7 @@ import dev.magadiflo.r2dbc.app.model.dto.UpdateAuthorDTO;
 import dev.magadiflo.r2dbc.app.model.projection.IAuthorProjection;
 import dev.magadiflo.r2dbc.app.persistence.entity.Author;
 import dev.magadiflo.r2dbc.app.service.IAuthorService;
-import dev.magadiflo.r2dbc.app.web.util.ResponseMessage;
+import dev.magadiflo.r2dbc.app.utils.ResponseMessage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -63,7 +63,7 @@ public class AuthorRestController {
     @PostMapping
     public Mono<ResponseEntity<Void>> registerAuthor(@RequestBody RegisterAuthorDTO registerAuthorDTO) throws ApiException {
         return this.authorService.saveAuthor(registerAuthorDTO)
-                .flatMap(authorId -> Mono.just(new ResponseEntity<>(HttpStatus.CREATED)));
+                .flatMap(affectedRows -> Mono.just(new ResponseEntity<>(HttpStatus.CREATED)));
     }
 
     @PutMapping(path = "/{authorId}")

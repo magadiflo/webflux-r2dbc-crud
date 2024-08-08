@@ -3,6 +3,7 @@ package dev.magadiflo.r2dbc.app.persistence.repository;
 import dev.magadiflo.r2dbc.app.model.projection.IAuthorProjection;
 import dev.magadiflo.r2dbc.app.persistence.entity.Author;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
@@ -10,12 +11,23 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 public interface IAuthorRepository extends ReactiveCrudRepository<Author, Integer> {
+
+    /**
+     * @param author
+     * @return affectedRows
+     */
+    @Modifying
     @Query(value = """
             INSERT INTO authors(first_name, last_name, birthdate)
             VALUES(:#{#author.firstName}, :#{#author.lastName}, :#{#author.birthdate})
             """)
     Mono<Integer> saveAuthor(@Param(value = "author") Author author);
 
+    /**
+     * @param author
+     * @return affectedRows
+     */
+    @Modifying
     @Query(value = """
             UPDATE authors
             SET first_name = :#{#author.firstName},

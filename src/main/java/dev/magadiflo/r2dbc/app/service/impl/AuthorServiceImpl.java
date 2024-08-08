@@ -8,12 +8,10 @@ import dev.magadiflo.r2dbc.app.model.dto.UpdateAuthorDTO;
 import dev.magadiflo.r2dbc.app.model.projection.IAuthorProjection;
 import dev.magadiflo.r2dbc.app.persistence.entity.Author;
 import dev.magadiflo.r2dbc.app.persistence.repository.IAuthorRepository;
-import dev.magadiflo.r2dbc.app.persistence.repository.IBookRepository;
 import dev.magadiflo.r2dbc.app.service.IAuthorService;
+import dev.magadiflo.r2dbc.app.utils.AuthorMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.modelmapper.MappingException;
-import org.modelmapper.ModelMapper;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -29,8 +27,7 @@ import reactor.core.publisher.Mono;
 public class AuthorServiceImpl implements IAuthorService {
 
     private final IAuthorRepository authorRepository;
-    private final IBookRepository bookRepository;
-    private final ModelMapper modelMapper;
+    private final AuthorMapper authorMapper;
 
     @Override
     @Transactional(readOnly = true)
@@ -60,38 +57,19 @@ public class AuthorServiceImpl implements IAuthorService {
     @Transactional
     public Mono<Integer> saveAuthor(RegisterAuthorDTO registerAuthorDTO) {
         return Mono.just(registerAuthorDTO)
-                .flatMap(dto -> {
-                    try {
-//                        Author author = this.modelMapper.map(dto, Author.class);// Marca error al hacer el mapeo, al parecer es por el formato en las fecha, no encontré la solución
-                        Author author = Author.builder()
-                                .firstName(dto.firstName())
-                                .lastName(dto.lastName())
-                                .birthdate(dto.birthdate())
-                                .build();
-                        return Mono.just(author);
-                    } catch (MappingException e) {
-                        log.error(e.getMessage());
-                        return Mono.error(new ApiException("Error al insertar datos", HttpStatus.BAD_REQUEST));
-                    }
-                })
-                .flatMap(this.authorRepository::saveAuthor);
+                .flatMap(dto -> this.authorMapper.toAuthor(registerAuthorDTO))
+                .flatMap(this.authorRepository::saveAuthor)
+                .doOnNext(affectedRows -> log.info("Filas afectadas en el insert: {}", affectedRows));
     }
 
     @Override
     @Transactional
     public Mono<IAuthorProjection> updateAuthor(Integer authorId, UpdateAuthorDTO updateAuthorDTO) {
         return Mono.just(updateAuthorDTO)
-                .flatMap(dto -> {
-                    try {
-                        Author authorEntity = this.modelMapper.map(dto, Author.class);
-                        authorEntity.setId(authorId);
-                        return Mono.just(authorEntity);
-                    } catch (MappingException e) {
-                        return Mono.error(new ApiException("Error al actualizar", HttpStatus.BAD_REQUEST));
-                    }
-                })
+                .flatMap(dto -> this.authorMapper.toAuthor(dto, authorId))
                 .flatMap(this.authorRepository::updateAuthor)
-                .flatMap(this.authorRepository::findByAuthorId);
+                .doOnNext(affectedRows -> log.info("Filas afectadas en el update: {}", affectedRows))
+                .flatMap(affectedRows -> this.authorRepository.findByAuthorId(authorId));
     }
 
     @Override

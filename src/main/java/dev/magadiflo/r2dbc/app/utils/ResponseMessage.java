@@ -1,4 +1,4 @@
-package dev.magadiflo.r2dbc.app.web.util;
+package dev.magadiflo.r2dbc.app.utils;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;

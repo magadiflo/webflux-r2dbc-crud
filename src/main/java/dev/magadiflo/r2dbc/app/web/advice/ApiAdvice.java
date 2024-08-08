@@ -1,7 +1,7 @@
 package dev.magadiflo.r2dbc.app.web.advice;
 
 import dev.magadiflo.r2dbc.app.exception.ApiException;
-import dev.magadiflo.r2dbc.app.web.util.ResponseMessage;
+import dev.magadiflo.r2dbc.app.utils.ResponseMessage;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
