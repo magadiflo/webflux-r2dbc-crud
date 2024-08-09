@@ -30,8 +30,16 @@ public class AuthorRestController {
     private final IAuthorService authorService;
 
     @GetMapping
-    public Flux<Author> getAuthor(AuthorCriteria authorCriteria) {
-        return this.authorService.findAll(authorCriteria);
+    public Mono<ResponseEntity<Flux<Author>>> findAllAuthors(AuthorCriteria authorCriteria) {
+        Flux<Author> authorFlux = this.authorService.findAll(authorCriteria);
+        return authorFlux
+                .hasElements()
+                .flatMap(hasElements -> {
+                    if (hasElements) {
+                        return Mono.just(ResponseEntity.ok(authorFlux));
+                    }
+                    return Mono.just(ResponseEntity.noContent().build());
+                });
     }
 
     @GetMapping(path = "/pages")
