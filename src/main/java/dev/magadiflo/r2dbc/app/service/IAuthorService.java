@@ -22,5 +22,5 @@ public interface IAuthorService {
 
     Mono<IAuthorProjection> updateAuthor(Integer authorId, UpdateAuthorDTO updateAuthorDTO);
 
-    Mono<Void> deleteAuthor(Integer authorId);
+    Mono<Boolean> deleteAuthor(Integer authorId);
 }

@@ -6,6 +6,7 @@ import dev.magadiflo.r2dbc.app.model.dto.AuthorFilter;
 import dev.magadiflo.r2dbc.app.model.dto.RegisterAuthorDTO;
 import dev.magadiflo.r2dbc.app.model.dto.UpdateAuthorDTO;
 import dev.magadiflo.r2dbc.app.model.projection.IAuthorProjection;
+import dev.magadiflo.r2dbc.app.persistence.dao.IBookAuthorDao;
 import dev.magadiflo.r2dbc.app.persistence.entity.Author;
 import dev.magadiflo.r2dbc.app.persistence.repository.IAuthorRepository;
 import dev.magadiflo.r2dbc.app.service.IAuthorService;
@@ -27,6 +28,7 @@ import reactor.core.publisher.Mono;
 public class AuthorServiceImpl implements IAuthorService {
 
     private final IAuthorRepository authorRepository;
+    private final IBookAuthorDao bookAuthorDao;
     private final AuthorMapper authorMapper;
 
     @Override
@@ -75,20 +77,17 @@ public class AuthorServiceImpl implements IAuthorService {
 
     @Override
     @Transactional
-    public Mono<Void> deleteAuthor(Integer authorId) {
-        /*
-        return bookRepository.existBookAuthorByAuthorId(authorId)
-            .flatMap(existBookAuthor -> {
-
-                if (existBookAuthor) {
-                    return bookRepository.deleteBookAuthorByAuthorId(authorId);
-                }
-
-                return bookRepository.deleteBookAuthorByAuthorId(authorId)
-                        .then(authorRepository.deleteById(authorId));
-
-            });
-         */
-        return null;
+    public Mono<Boolean> deleteAuthor(Integer authorId) {
+        return this.authorRepository.findById(authorId)
+                .flatMap(authorDB -> this.bookAuthorDao.existBookAuthorByAuthorId(authorId))
+                .flatMap(existsBookAuthor -> {
+                    log.info("Existe el author en la tabla book_authors?: {}", existsBookAuthor);
+                    if (existsBookAuthor) {
+                        return this.bookAuthorDao.deleteBookAuthorByAuthorId(authorId).then(Mono.just(true));
+                    }
+                    return Mono.just(true);
+                })
+                .flatMap(canContinue -> this.authorRepository.deleteById(authorId).then(Mono.just(true)))
+                .switchIfEmpty(Mono.error(new ApiException("No se encontró el author con id %s para eliminar".formatted(authorId), HttpStatus.NOT_FOUND)));
     }
 }

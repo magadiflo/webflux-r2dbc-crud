@@ -81,6 +81,6 @@ public class AuthorRestController {
     @DeleteMapping(path = "/{authorId}")
     public Mono<ResponseEntity<Void>> deleteAuthor(@PathVariable Integer authorId) throws ApiException {
         return this.authorService.deleteAuthor(authorId)
-                .then(Mono.just(new ResponseEntity<>(HttpStatus.OK)));
+                .map(wasDeleted -> ResponseEntity.noContent().build());
     }
 }
