@@ -2,7 +2,6 @@ package dev.magadiflo.r2dbc.app.web.api;
 
 import dev.magadiflo.r2dbc.app.exception.ApiException;
 import dev.magadiflo.r2dbc.app.model.dto.AuthorCriteria;
-import dev.magadiflo.r2dbc.app.model.dto.AuthorFilter;
 import dev.magadiflo.r2dbc.app.model.dto.RegisterAuthorDTO;
 import dev.magadiflo.r2dbc.app.model.dto.UpdateAuthorDTO;
 import dev.magadiflo.r2dbc.app.model.projection.IAuthorProjection;
@@ -11,16 +10,11 @@ import dev.magadiflo.r2dbc.app.service.IAuthorService;
 import dev.magadiflo.r2dbc.app.utils.ResponseMessage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-
-import java.util.Arrays;
 
 @RequiredArgsConstructor
 @RestController
@@ -43,23 +37,11 @@ public class AuthorRestController {
     }
 
     @GetMapping(path = "/pages")
-    public Mono<ResponseEntity<Page<IAuthorProjection>>> findAllPage(
-            @RequestParam(name = "q", defaultValue = "", required = false) String q,
-            @RequestParam(name = "page", defaultValue = "0", required = false) int page,
-            @RequestParam(name = "size", defaultValue = "5", required = false) int size,
-            @RequestParam(name = "sortBy", defaultValue = "authorId", required = false) String sortBy,
-            @RequestParam(name = "sortDirection", defaultValue = "asc", required = false) String sortDirection) {
-
-        String[] sortArray = sortBy.contains(",") ?
-                Arrays.stream(sortBy.split(",")).map(String::trim).toArray(String[]::new) :
-                new String[]{sortBy.trim()};
-
-        Sort sort = Sort.by(Sort.Direction.fromString(sortDirection), sortArray);
-        Pageable pageable = PageRequest.of(page, size, sort);
-        AuthorFilter authorFilter = new AuthorFilter(q);
-
-        return this.authorService.findAllToPage(authorFilter, pageable)
-                .flatMap(authorProjections -> Mono.just(ResponseEntity.ok(authorProjections)));
+    public Mono<ResponseEntity<Page<IAuthorProjection>>> findAllPage(@RequestParam(name = "query", defaultValue = "", required = false) String query,
+                                                                     @RequestParam(name = "page", defaultValue = "0", required = false) int pageNumber,
+                                                                     @RequestParam(name = "size", defaultValue = "5", required = false) int pageSize) {
+        return this.authorService.findAllToPage(query, pageNumber, pageSize)
+                .map(ResponseEntity::ok);
     }
 
     @GetMapping(path = "/{authorId}")

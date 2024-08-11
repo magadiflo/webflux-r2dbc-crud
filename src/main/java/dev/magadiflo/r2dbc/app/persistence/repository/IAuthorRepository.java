@@ -38,25 +38,31 @@ public interface IAuthorRepository extends ReactiveCrudRepository<Author, Intege
     Mono<Integer> updateAuthor(@Param(value = "author") Author author);
 
     @Query("""
-            SELECT COUNT(a.id)
-            FROM authors AS a
-            WHERE a.first_name LIKE '%' || :q || '%' OR a.last_name LIKE '%' || :q || '%'
-            """)
-    Mono<Integer> findCountByQ(@Param(value = "q") String q);
-
-    @Query("""
             SELECT a.id, a.first_name, a.last_name, CONCAT(a.first_name, ' ', a.last_name) AS full_name, a.birthdate
             FROM authors AS a
             WHERE a.id = :authorId
             """)
     Mono<IAuthorProjection> findByAuthorId(@Param(value = "authorId") Integer authorId);
 
-    @Query("""
-            SELECT a.id, a.first_name, a.last_name, a.first_name || ' ' || a.last_name AS full_name, a.birthdate
+    @Query(value = """
+            SELECT COUNT(a.id)
             FROM authors AS a
-            WHERE a.first_name LIKE CONCAT('%',:q,'%') OR a.last_name LIKE CONCAT('%',:q,'%')
-            ORDER BY a.id ASC
-            LIMIT :#{#pageable.pageSize} OFFSET :#{#pageable.offset}
+            WHERE a.first_name LIKE :#{'%' + #query + '%'}
+                OR a.last_name LIKE :#{'%' + #query + '%'}
             """)
-    Flux<IAuthorProjection> findByQ(@Param(value = "q") String q, @Param(value = "pageable") Pageable pageable);
+    Mono<Integer> findCountByQuery(String query);
+
+    @Query(value = """
+            SELECT  a.id,
+                    a.first_name,
+                    a.last_name,
+                    a.birthdate
+            FROM authors AS a
+            WHERE a.first_name LIKE :#{'%' + #query + '%'}
+                OR a.last_name LIKE :#{'%' + #query + '%'}
+            ORDER BY a.id ASC
+            LIMIT :#{#pageable.getPageSize()}
+            OFFSET :#{#pageable.getOffset()}
+            """)
+    Flux<IAuthorProjection> findByQuery(String query, Pageable pageable);
 }
