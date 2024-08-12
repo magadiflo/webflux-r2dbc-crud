@@ -64,6 +64,6 @@ public class BookRestController {
     @DeleteMapping(path = "/{bookId}")
     public Mono<ResponseEntity<Void>> deleteBook(@PathVariable Integer bookId) {
         return this.bookService.deleteBook(bookId)
-                .then(Mono.just(new ResponseEntity<>(HttpStatus.NO_CONTENT)));
+                .map(wasDeleted -> ResponseEntity.noContent().build());
     }
 }

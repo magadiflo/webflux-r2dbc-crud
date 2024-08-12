@@ -14,5 +14,5 @@ public interface IBookService {
 
     Mono<Integer> saveBook(RegisterBookDTO registerBookDTO);
 
-    Mono<Void> deleteBook(Integer bookId);
+    Mono<Boolean> deleteBook(Integer bookId);
 }

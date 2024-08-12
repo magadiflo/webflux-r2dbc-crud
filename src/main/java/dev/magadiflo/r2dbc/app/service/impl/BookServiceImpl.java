@@ -74,21 +74,17 @@ public class BookServiceImpl implements IBookService {
 
     @Override
     @Transactional
-    public Mono<Void> deleteBook(Integer bookId) {
-        /*
-        return bookRepository.existBookAuthorByBookId(bookId)
-		.flatMap(existBookAuthor -> {
-
-			if(!existBookAuthor) {
-
-				return bookRepository.deleteById(bookId);
-			}
-
-			return bookRepository.deleteBookAuthorByBookId(bookId)
-					.then( bookRepository.deleteById(bookId));
-
-		});
-         */
-        return null;
+    public Mono<Boolean> deleteBook(Integer bookId) {
+        return this.bookRepository.findById(bookId)
+                .flatMap(bookDB -> this.bookAuthorDao.existBookAuthorByBookId(bookId))
+                .flatMap(existsBookAuthor -> {
+                    log.info("Existe el libro en la tabla book_authors?: {}", existsBookAuthor);
+                    if (existsBookAuthor) {
+                        return this.bookAuthorDao.deleteBookAuthorByBookId(bookId).then(Mono.just(true));
+                    }
+                    return Mono.just(true);
+                })
+                .flatMap(canContinue -> this.bookRepository.deleteById(bookId).then(Mono.just(true)))
+                .switchIfEmpty(Mono.error(new ApiException("No se encontró el libro con id %s para eliminar".formatted(bookId), HttpStatus.NOT_FOUND)));
     }
 }

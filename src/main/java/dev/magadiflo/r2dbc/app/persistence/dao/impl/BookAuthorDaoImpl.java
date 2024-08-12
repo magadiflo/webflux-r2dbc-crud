@@ -151,15 +151,14 @@ public class BookAuthorDaoImpl implements IBookAuthorDao {
                           WHEN COUNT(ba.book_id) > 0 THEN true
                           ELSE false
                        END as result
-                FROM book_authors ba
+                FROM book_authors AS ba
                 WHERE ba.book_id = :bookId
                 """;
 
         return databaseClient.sql(sql)
                 .bind("bookId", bookId)
                 .map((row, metadata) -> row.get("result", Boolean.class))
-                .first()
-                .switchIfEmpty(Mono.error(new ApiException("No record found for book with ID: " + bookId, HttpStatus.NOT_FOUND)));
+                .first();
     }
 
     @Override
@@ -210,7 +209,7 @@ public class BookAuthorDaoImpl implements IBookAuthorDao {
     @Override
     public Mono<Void> deleteBookAuthorByBookId(Integer bookId) {
         String sql = """			
-                DELETE FROM book_authors ba
+                DELETE FROM book_authors AS ba
                 WHERE ba.book_id = :bookId
                 """;
 

@@ -744,7 +744,7 @@ public interface IBookService {
 
     Mono<Integer> saveBook(RegisterBookDTO registerBookDTO);
 
-    Mono<Void> deleteBook(Integer bookId);
+    Mono<Boolean> deleteBook(Integer bookId);
 }
 ````
 
@@ -1023,15 +1023,14 @@ public class BookAuthorDaoImpl implements IBookAuthorDao {
                           WHEN COUNT(ba.book_id) > 0 THEN true
                           ELSE false
                        END as result
-                FROM book_authors ba
+                FROM book_authors AS ba
                 WHERE ba.book_id = :bookId
                 """;
 
         return databaseClient.sql(sql)
                 .bind("bookId", bookId)
                 .map((row, metadata) -> row.get("result", Boolean.class))
-                .first()
-                .switchIfEmpty(Mono.error(new ApiException("No record found for book with ID: " + bookId, HttpStatus.NOT_FOUND)));
+                .first();
     }
 
     @Override
@@ -1082,7 +1081,7 @@ public class BookAuthorDaoImpl implements IBookAuthorDao {
     @Override
     public Mono<Void> deleteBookAuthorByBookId(Integer bookId) {
         String sql = """			
-                DELETE FROM book_authors ba
+                DELETE FROM book_authors AS ba
                 WHERE ba.book_id = :bookId
                 """;
 
@@ -1245,8 +1244,7 @@ public Mono<Void> saveAllBookAuthor(List<BookAuthor> bookAuthorList) {
 En resumen, `Flux.concat(inserts)` se utiliza aquí para gestionar las inserciones en orden y de forma secuencial,
 mientras que la estructura reactiva permite manejar errores y completar la operación de manera eficiente.
 
-En la implementación del servicio `BookServiceImpl` solo dejaremos definida la clase. El código comentado es porque
-en el tutorial original no está implementado:
+A continuación se muestra la implementación del servicio `BookServiceImpl`.
 
 ````java
 
@@ -1302,22 +1300,18 @@ public class BookServiceImpl implements IBookService {
 
     @Override
     @Transactional
-    public Mono<Void> deleteBook(Integer bookId) {
-        /*
-        return bookRepository.existBookAuthorByBookId(bookId)
-		.flatMap(existBookAuthor -> {
-
-			if(!existBookAuthor) {
-
-				return bookRepository.deleteById(bookId);
-			}
-
-			return bookRepository.deleteBookAuthorByBookId(bookId)
-					.then( bookRepository.deleteById(bookId));
-
-		});
-         */
-        return null;
+    public Mono<Boolean> deleteBook(Integer bookId) {
+        return this.bookRepository.findById(bookId)
+                .flatMap(bookDB -> this.bookAuthorDao.existBookAuthorByBookId(bookId))
+                .flatMap(existsBookAuthor -> {
+                    log.info("Existe el libro en la tabla book_authors?: {}", existsBookAuthor);
+                    if (existsBookAuthor) {
+                        return this.bookAuthorDao.deleteBookAuthorByBookId(bookId).then(Mono.just(true));
+                    }
+                    return Mono.just(true);
+                })
+                .flatMap(canContinue -> this.bookRepository.deleteById(bookId).then(Mono.just(true)))
+                .switchIfEmpty(Mono.error(new ApiException("No se encontró el libro con id %s para eliminar".formatted(bookId), HttpStatus.NOT_FOUND)));
     }
 }
 ````
@@ -1405,7 +1399,7 @@ public class BookRestController {
     @DeleteMapping(path = "/{bookId}")
     public Mono<ResponseEntity<Void>> deleteBook(@PathVariable Integer bookId) {
         return this.bookService.deleteBook(bookId)
-                .then(Mono.just(new ResponseEntity<>(HttpStatus.NO_CONTENT)));
+                .map(wasDeleted -> ResponseEntity.noContent().build());
     }
 }
 ````
