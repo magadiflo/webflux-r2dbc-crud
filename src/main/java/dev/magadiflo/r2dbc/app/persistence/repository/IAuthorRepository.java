@@ -10,6 +10,8 @@ import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.util.List;
+
 public interface IAuthorRepository extends ReactiveCrudRepository<Author, Integer> {
 
     /**
@@ -43,6 +45,16 @@ public interface IAuthorRepository extends ReactiveCrudRepository<Author, Intege
             WHERE a.id = :authorId
             """)
     Mono<IAuthorProjection> findByAuthorId(@Param(value = "authorId") Integer authorId);
+
+    @Query(value = """
+            SELECT a.id,
+                    a.first_name,
+                    a.last_name,
+                    a.birthdate
+            FROM authors AS a
+            WHERE a.id IN(:authorIds)
+            """)
+    Flux<Author> findAllAuthorsByIdIn(List<Integer> authorIds);
 
     @Query(value = """
             SELECT COUNT(a.id)

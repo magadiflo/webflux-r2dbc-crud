@@ -297,6 +297,7 @@ public interface IBookRepository extends ReactiveCrudRepository<Book, Integer> {
 Ahora, mostramos la creación del repositorio `IAuthorRepository` para la entidad `Author`:
 
 ````java
+
 public interface IAuthorRepository extends ReactiveCrudRepository<Author, Integer> {
 
     /**
@@ -330,6 +331,16 @@ public interface IAuthorRepository extends ReactiveCrudRepository<Author, Intege
             WHERE a.id = :authorId
             """)
     Mono<IAuthorProjection> findByAuthorId(@Param(value = "authorId") Integer authorId);
+
+    @Query(value = """
+            SELECT a.id,
+                    a.first_name,
+                    a.last_name,
+                    a.birthdate
+            FROM authors AS a
+            WHERE a.id IN(:authorIds)
+            """)
+    Flux<Author> findAllAuthorsByIdIn(List<Integer> authorIds);
 
     @Query(value = """
             SELECT COUNT(a.id)
@@ -579,27 +590,11 @@ public interface IBookProjection {
 
 ## Creando DTOs
 
-A continuación mostramos todos los dtos creados usando `record`. Los primeros records creados son para las consultas
-que realizaremos usando `criteria`, es decir consultas que serán elaboradas de manera dinámica:
+A continuación mostramos todos los dtos creados usando `record` o `clases`. Los primeros records creados son para las
+consultas que realizaremos usando `criteria`, es decir consultas que serán elaboradas de manera dinámica:
 
 ````java
 public record BookCriteria(String q, LocalDate publicationDate) {
-}
-````
-
-En el siguiente `record` se ha definido un `constructor compacto` para poder darle un valor por defecto al atributo
-`onlineAvailability` cuando se cree el objeto del record con valor `null` para dicho atributo:
-
-````java
-public record RegisterBookDTO(String title,
-                              @JsonFormat(pattern = "dd/MM/yyyy") LocalDate publicationDate,
-                              List<Integer> authors,
-                              Boolean onlineAvailability) {
-    // Constructor compacto
-    // Las asignaciones se realizan de manera automática
-    public RegisterBookDTO {
-        onlineAvailability = onlineAvailability != null && onlineAvailability;
-    }
 }
 ````
 
@@ -610,6 +605,28 @@ public record AuthorCriteria(String firstName, Boolean lastName) {
 
 ````java
 public record AuthorFilter(String q) {
+}
+````
+
+Para el siguiente dto utilizaremos una clase con anotaciones de lombook. La razón del porqué usamos una clase y no un
+record es porque esta clase será mapeada usando la dependencia de `ModelMapper` y según las pruebas que hice, la
+dependencia no trabaja bien con records sino más bien con clases. Si usamos record, posiblemente el mapeo no va a
+fallar, pero al inspeccionar el valor de los atributos mapeados, todos estarán en `null`.
+
+````java
+
+@ToString
+@AllArgsConstructor
+@NoArgsConstructor
+@Builder
+@Setter
+@Getter
+public class RegisterBookDTO {
+    private String title;
+    @JsonFormat(pattern = "dd/MM/yyyy")
+    private LocalDate publicationDate;
+    private List<Integer> authors;
+    private Boolean onlineAvailability = false;
 }
 ````
 
@@ -725,7 +742,7 @@ public interface IBookService {
 
     Mono<IBookProjection> findBookById(Integer bookId);
 
-    Mono<Void> saveBook(RegisterBookDTO registerBookDTO);
+    Mono<Integer> saveBook(RegisterBookDTO registerBookDTO);
 
     Mono<Void> deleteBook(Integer bookId);
 }
@@ -850,9 +867,9 @@ a continuación pasamos a documentar.
 public interface IBookAuthorDao {
     Mono<Long> findCountBookAuthorByCriteria(BookCriteria bookCriteria);
 
-    Mono<Void> saveBookAuthor(BookAuthor bookAuthor);
+    Mono<Long> saveBookAuthor(BookAuthor bookAuthor);
 
-    Flux<Void> saveAllBookAuthor(List<BookAuthor> bookAuthor);
+    Mono<Void> saveAllBookAuthor(List<BookAuthor> bookAuthor);
 
     Mono<IBookProjection> findByBookId(Integer bookId);
 
@@ -938,32 +955,35 @@ public class BookAuthorDaoImpl implements IBookAuthorDao {
     }
 
     @Override
-    public Mono<Void> saveBookAuthor(BookAuthor bookAuthor) {
-        return this.databaseClient
-                .sql("INSERT INTO book_authors(book_id, author_id) VALUES(:bookId, :authorId)")
+    public Mono<Long> saveBookAuthor(BookAuthor bookAuthor) {
+        return this.databaseClient.sql("""
+                        INSERT INTO book_authors(book_id, author_id)
+                        VALUES(:bookId, :authorId)
+                        """)
                 .bind("bookId", bookAuthor.getBookId())
                 .bind("authorId", bookAuthor.getAuthorId())
                 .fetch()
                 .rowsUpdated()
-                .then()
-                .onErrorResume(error -> Mono.error(new ApiException(error.getMessage(), HttpStatus.BAD_REQUEST)));
+                .onErrorMap(error -> new ApiException("Error al insertar en la tabla book_authors" + error.getMessage(), HttpStatus.BAD_REQUEST));
     }
 
     @Override
-    public Flux<Void> saveAllBookAuthor(List<BookAuthor> bookAuthor) {
-        List<Mono<Void>> inserts = bookAuthor.stream()
-                .map(bookAuthorToSave -> this.databaseClient
-                        .sql("INSERT INTO book_authors(book_id, author_id) VALUES(:bookId, :authorId)")
+    public Mono<Void> saveAllBookAuthor(List<BookAuthor> bookAuthorList) {
+        List<Mono<Long>> inserts = bookAuthorList.stream()
+                .map(bookAuthorToSave -> this.databaseClient.sql("""
+                                INSERT INTO book_authors(book_id, author_id)
+                                VALUES(:bookId, :authorId)
+                                """)
                         .bind("bookId", bookAuthorToSave.getBookId())
                         .bind("authorId", bookAuthorToSave.getAuthorId())
                         .fetch()
                         .rowsUpdated()
-                        .then()
-                        .onErrorResume(error -> Mono.error(new ApiException(error.getMessage(), HttpStatus.BAD_REQUEST)))
+                        .onErrorMap(error -> new ApiException(error.getMessage(), HttpStatus.BAD_REQUEST))
                 )
-                .collect(Collectors.toList());
+                .toList();
 
-        return Flux.concat(inserts);
+        Flux<Long> concat = Flux.concat(inserts);
+        return concat.then();
     }
 
     @Override
@@ -1176,6 +1196,55 @@ public class BookAuthorDaoImpl implements IBookAuthorDao {
 }
 ````
 
+Del código anterior, analicemos el método `saveAllBookAuthor()`:
+
+````java
+
+@Override
+public Mono<Void> saveAllBookAuthor(List<BookAuthor> bookAuthorList) {
+    List<Mono<Long>> inserts = bookAuthorList.stream()
+            .map(bookAuthorToSave -> this.databaseClient.sql("""
+                            INSERT INTO book_authors(book_id, author_id)
+                            VALUES(:bookId, :authorId)
+                            """)
+                    .bind("bookId", bookAuthorToSave.getBookId())
+                    .bind("authorId", bookAuthorToSave.getAuthorId())
+                    .fetch()
+                    .rowsUpdated()
+                    .onErrorMap(error -> new ApiException(error.getMessage(), HttpStatus.BAD_REQUEST))
+            )
+            .toList();
+
+    Flux<Long> concat = Flux.concat(inserts);
+    return concat.then();
+}
+````
+
+**Donde**
+
+- `Flux.concat(inserts)` toma una lista de `Mono<Long>` (en este caso, cada `Mono` representa una operación de inserción
+  en la base de datos) y los concatena en un solo `Flux<Long>`.
+
+
+- Esto significa que los `Mono<Long>` se ejecutarán uno tras otro en orden secuencial. El segundo `Mono` no comenzará a
+  ejecutarse hasta que el primero haya completado su operación.
+
+
+- A medida que cada `Mono<Long>` se completa (ya sea emitiendo un valor o un error), el `Flux` resultante emitirá esos
+  valores. Sin embargo, en este caso, estás utilizando `then()` al final, por lo que no te interesa el resultado de los
+  Long emitidos (el número de filas actualizadas), sino que deseas que el flujo termine correctamente.
+
+
+- Si alguno de los `Mono<Long>` en la lista falla (es decir, si alguna inserción provoca un error), el `Flux` emitirá un
+  error, y el flujo se detendrá. Esto es útil para manejar errores de manera centralizada: si hay un error en cualquiera
+  de las inserciones, toda la operación de inserción se considera fallida.
+
+
+- `Flux.concat()` es útil, ya que fuerza la suscripción y ejecución de cada `Mono` secuencialmente.
+
+En resumen, `Flux.concat(inserts)` se utiliza aquí para gestionar las inserciones en orden y de forma secuencial,
+mientras que la estructura reactiva permite manejar errores y completar la operación de manera eficiente.
+
 En la implementación del servicio `BookServiceImpl` solo dejaremos definida la clase. El código comentado es porque
 en el tutorial original no está implementado:
 
@@ -1187,9 +1256,12 @@ en el tutorial original no está implementado:
 public class BookServiceImpl implements IBookService {
 
     private final IBookRepository bookRepository;
-    private final ModelMapper modelMapper;
+    private final IAuthorRepository authorRepository;
+    private final IBookAuthorDao bookAuthorDao;
+    private final BookMapper bookMapper;
 
     @Override
+    @Transactional(readOnly = true)
     public Mono<Page<IBookProjection>> findAllToPage(BookCriteria bookCriteria, Pageable pageable) {
         /*
         return bookRepository.findAllToPage(bookCriteria,pageable)
@@ -1202,39 +1274,34 @@ public class BookServiceImpl implements IBookService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Mono<IBookProjection> findBookById(Integer bookId) {
         //return bookRepository.findByBookId(bookId);
         return null;
     }
 
     @Override
-    public Mono<Void> saveBook(RegisterBookDTO registerBookDTO) {
-        /*
-        Book book = null;
+    @Transactional
+    public Mono<Integer> saveBook(RegisterBookDTO registerBookDTO) {
+        Mono<Book> bookMonoToSave = this.bookMapper.toBook(registerBookDTO);
+        Mono<Book> bookMonoDB = bookMonoToSave.flatMap(this.bookRepository::save);
 
-		try {
-			book = modelMapper.map(registerBookDto, Book.class);
-		} catch (Exception e) {
-			log.error(e.getMessage());
-			return Mono.error(new ApiException("Error in Detail", HttpStatus.NOT_FOUND));
-		}
-
-		return bookRepository.save(book).flatMap(bookEntity -> {
-			List<BookAuthor> bookAuthors = registerBookDto.getAuthors().stream().map(authorId -> {
-
-				return BookAuthor.builder()
-						.authorId(authorId)
-						.bookId(bookEntity.getBookId())
-						.build();
-
-			}).collect(Collectors.toList());
-			return bookRepository.saveAllBookAuthor(bookAuthors).collectList().then();
-		});
-         */
-        return null;
+        return this.authorRepository.findAllAuthorsByIdIn(registerBookDTO.getAuthors())
+                .collectList()
+                .flatMap(authors -> {
+                    if (authors.size() != registerBookDTO.getAuthors().size()) {
+                        return Mono.error(new ApiException("Algunos autores no existen en la BD", HttpStatus.BAD_REQUEST));
+                    }
+                    return Mono.just(authors);
+                }).zipWith(bookMonoDB, (authors, bookDB) -> {
+                    List<BookAuthor> bookAuthorList = this.bookMapper.toBookAuthorList(authors, bookDB.getId());
+                    return this.bookAuthorDao.saveAllBookAuthor(bookAuthorList).then(Mono.just(bookDB.getId()));
+                })
+                .flatMap(bookIdMono -> bookIdMono);
     }
 
     @Override
+    @Transactional
     public Mono<Void> deleteBook(Integer bookId) {
         /*
         return bookRepository.existBookAuthorByBookId(bookId)
@@ -1251,6 +1318,94 @@ public class BookServiceImpl implements IBookService {
 		});
          */
         return null;
+    }
+}
+````
+
+Observemos que la clase de servicio anterior utiliza un `BookMapper`, así que es lo que se muestra a continuación:
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@Component
+public class BookMapper {
+
+    private final ModelMapper modelMapper;
+
+    public Mono<Book> toBook(RegisterBookDTO dto) {
+        try {
+            Book book = modelMapper.map(dto, Book.class);
+            return Mono.just(book);
+        } catch (Exception e) {
+            log.error("Error en mapeo para registrar book:: {}", e.getMessage());
+            return Mono.error(new ApiException("Error al mapear entidad Author", HttpStatus.BAD_REQUEST));
+        }
+    }
+
+    public List<BookAuthor> toBookAuthorList(List<Author> authors, Integer bookId) {
+        return authors.stream()
+                .map(author -> BookAuthor
+                        .builder()
+                        .bookId(bookId)
+                        .authorId(author.getId())
+                        .build()
+                )
+                .toList();
+    }
+}
+````
+
+## Creando el controller del Book
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/books")
+public class BookRestController {
+
+    private final IBookService bookService;
+
+    @GetMapping(path = "/pages")
+    public Mono<ResponseEntity<Page<IBookProjection>>> findAllPage(
+            @RequestParam(name = "q", defaultValue = "", required = false) String q,
+            @RequestParam(name = "page", defaultValue = "0", required = false) int page,
+            @RequestParam(name = "size", defaultValue = "5", required = false) int size,
+            @RequestParam(name = "sortBy", defaultValue = "bookId", required = false) String sortBy,
+            @RequestParam(name = "sortDirection", defaultValue = "asc", required = false) String sortDirection,
+            @DateTimeFormat(pattern = "dd/MM/yyyy") LocalDate publicationDate) {
+
+        String[] sortArray = sortBy.contains(",") ?
+                Arrays.stream(sortBy.split(",")).map(String::trim).toArray(String[]::new) :
+                new String[]{sortBy.trim()};
+
+        Sort sort = Sort.by(Sort.Direction.fromString(sortDirection), sortArray);
+        Pageable pageable = PageRequest.of(page, size, sort);
+        BookCriteria bookCriteria = new BookCriteria(q, publicationDate);
+
+        return this.bookService.findAllToPage(bookCriteria, pageable)
+                .flatMap(bookProjections -> Mono.just(ResponseEntity.ok(bookProjections)));
+    }
+
+    @GetMapping(path = "/{bookId}")
+    public Mono<ResponseEntity<IBookProjection>> getBook(@PathVariable Integer bookId) {
+        return this.bookService.findBookById(bookId)
+                .flatMap(bookProjection -> Mono.just(new ResponseEntity<>(bookProjection, HttpStatus.OK)));
+    }
+
+    @PostMapping
+    public Mono<ResponseEntity<Void>> registerBook(@RequestBody RegisterBookDTO registerBookDTO) {
+        return this.bookService.saveBook(registerBookDTO)
+                .doOnNext(bookId -> log.info("bookId: {}", bookId))
+                .flatMap(bookId -> Mono.just(new ResponseEntity<>(HttpStatus.CREATED)));
+    }
+
+    @DeleteMapping(path = "/{bookId}")
+    public Mono<ResponseEntity<Void>> deleteBook(@PathVariable Integer bookId) {
+        return this.bookService.deleteBook(bookId)
+                .then(Mono.just(new ResponseEntity<>(HttpStatus.NO_CONTENT)));
     }
 }
 ````

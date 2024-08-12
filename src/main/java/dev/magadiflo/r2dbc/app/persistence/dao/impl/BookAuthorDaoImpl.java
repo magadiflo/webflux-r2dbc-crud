@@ -18,7 +18,6 @@ import reactor.core.publisher.Mono;
 
 import java.time.LocalDate;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -84,32 +83,35 @@ public class BookAuthorDaoImpl implements IBookAuthorDao {
     }
 
     @Override
-    public Mono<Void> saveBookAuthor(BookAuthor bookAuthor) {
-        return this.databaseClient
-                .sql("INSERT INTO book_authors(book_id, author_id) VALUES(:bookId, :authorId)")
+    public Mono<Long> saveBookAuthor(BookAuthor bookAuthor) {
+        return this.databaseClient.sql("""
+                        INSERT INTO book_authors(book_id, author_id)
+                        VALUES(:bookId, :authorId)
+                        """)
                 .bind("bookId", bookAuthor.getBookId())
                 .bind("authorId", bookAuthor.getAuthorId())
                 .fetch()
                 .rowsUpdated()
-                .then()
-                .onErrorResume(error -> Mono.error(new ApiException(error.getMessage(), HttpStatus.BAD_REQUEST)));
+                .onErrorMap(error -> new ApiException("Error al insertar en la tabla book_authors" + error.getMessage(), HttpStatus.BAD_REQUEST));
     }
 
     @Override
-    public Flux<Void> saveAllBookAuthor(List<BookAuthor> bookAuthor) {
-        List<Mono<Void>> inserts = bookAuthor.stream()
-                .map(bookAuthorToSave -> this.databaseClient
-                        .sql("INSERT INTO book_authors(book_id, author_id) VALUES(:bookId, :authorId)")
+    public Mono<Void> saveAllBookAuthor(List<BookAuthor> bookAuthorList) {
+        List<Mono<Long>> inserts = bookAuthorList.stream()
+                .map(bookAuthorToSave -> this.databaseClient.sql("""
+                                INSERT INTO book_authors(book_id, author_id)
+                                VALUES(:bookId, :authorId)
+                                """)
                         .bind("bookId", bookAuthorToSave.getBookId())
                         .bind("authorId", bookAuthorToSave.getAuthorId())
                         .fetch()
                         .rowsUpdated()
-                        .then()
-                        .onErrorResume(error -> Mono.error(new ApiException(error.getMessage(), HttpStatus.BAD_REQUEST)))
+                        .onErrorMap(error -> new ApiException(error.getMessage(), HttpStatus.BAD_REQUEST))
                 )
-                .collect(Collectors.toList());
+                .toList();
 
-        return Flux.concat(inserts);
+        Flux<Long> concat = Flux.concat(inserts);
+        return concat.then();
     }
 
     @Override

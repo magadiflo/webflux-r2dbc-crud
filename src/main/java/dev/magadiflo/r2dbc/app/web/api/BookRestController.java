@@ -5,6 +5,7 @@ import dev.magadiflo.r2dbc.app.model.dto.RegisterBookDTO;
 import dev.magadiflo.r2dbc.app.model.projection.IBookProjection;
 import dev.magadiflo.r2dbc.app.service.IBookService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -18,6 +19,7 @@ import reactor.core.publisher.Mono;
 import java.time.LocalDate;
 import java.util.Arrays;
 
+@Slf4j
 @RequiredArgsConstructor
 @RestController
 @RequestMapping(path = "/api/v1/books")
@@ -55,7 +57,8 @@ public class BookRestController {
     @PostMapping
     public Mono<ResponseEntity<Void>> registerBook(@RequestBody RegisterBookDTO registerBookDTO) {
         return this.bookService.saveBook(registerBookDTO)
-                .then(Mono.just(new ResponseEntity<>(HttpStatus.CREATED)));
+                .doOnNext(bookId -> log.info("bookId: {}", bookId))
+                .flatMap(bookId -> Mono.just(new ResponseEntity<>(HttpStatus.CREATED)));
     }
 
     @DeleteMapping(path = "/{bookId}")

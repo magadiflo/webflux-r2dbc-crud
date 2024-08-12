@@ -12,7 +12,7 @@ public interface IBookService {
 
     Mono<IBookProjection> findBookById(Integer bookId);
 
-    Mono<Void> saveBook(RegisterBookDTO registerBookDTO);
+    Mono<Integer> saveBook(RegisterBookDTO registerBookDTO);
 
     Mono<Void> deleteBook(Integer bookId);
 }

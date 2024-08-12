@@ -1,18 +1,26 @@
 package dev.magadiflo.r2dbc.app.service.impl;
 
+import dev.magadiflo.r2dbc.app.exception.ApiException;
 import dev.magadiflo.r2dbc.app.model.dto.BookCriteria;
 import dev.magadiflo.r2dbc.app.model.dto.RegisterBookDTO;
 import dev.magadiflo.r2dbc.app.model.projection.IBookProjection;
+import dev.magadiflo.r2dbc.app.persistence.dao.IBookAuthorDao;
+import dev.magadiflo.r2dbc.app.persistence.entity.Book;
+import dev.magadiflo.r2dbc.app.persistence.entity.BookAuthor;
+import dev.magadiflo.r2dbc.app.persistence.repository.IAuthorRepository;
 import dev.magadiflo.r2dbc.app.persistence.repository.IBookRepository;
 import dev.magadiflo.r2dbc.app.service.IBookService;
+import dev.magadiflo.r2dbc.app.utils.BookMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.modelmapper.ModelMapper;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Mono;
+
+import java.util.List;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -20,7 +28,9 @@ import reactor.core.publisher.Mono;
 public class BookServiceImpl implements IBookService {
 
     private final IBookRepository bookRepository;
-    private final ModelMapper modelMapper;
+    private final IAuthorRepository authorRepository;
+    private final IBookAuthorDao bookAuthorDao;
+    private final BookMapper bookMapper;
 
     @Override
     @Transactional(readOnly = true)
@@ -44,30 +54,22 @@ public class BookServiceImpl implements IBookService {
 
     @Override
     @Transactional
-    public Mono<Void> saveBook(RegisterBookDTO registerBookDTO) {
-        /*
-        Book book = null;
+    public Mono<Integer> saveBook(RegisterBookDTO registerBookDTO) {
+        Mono<Book> bookMonoToSave = this.bookMapper.toBook(registerBookDTO);
+        Mono<Book> bookMonoDB = bookMonoToSave.flatMap(this.bookRepository::save);
 
-		try {
-			book = modelMapper.map(registerBookDto, Book.class);
-		} catch (Exception e) {
-			log.error(e.getMessage());
-			return Mono.error(new ApiException("Error in Detail", HttpStatus.NOT_FOUND));
-		}
-
-		return bookRepository.save(book).flatMap(bookEntity -> {
-			List<BookAuthor> bookAuthors = registerBookDto.getAuthors().stream().map(authorId -> {
-
-				return BookAuthor.builder()
-						.authorId(authorId)
-						.bookId(bookEntity.getBookId())
-						.build();
-
-			}).collect(Collectors.toList());
-			return bookRepository.saveAllBookAuthor(bookAuthors).collectList().then();
-		});
-         */
-        return null;
+        return this.authorRepository.findAllAuthorsByIdIn(registerBookDTO.getAuthors())
+                .collectList()
+                .flatMap(authors -> {
+                    if (authors.size() != registerBookDTO.getAuthors().size()) {
+                        return Mono.error(new ApiException("Algunos autores no existen en la BD", HttpStatus.BAD_REQUEST));
+                    }
+                    return Mono.just(authors);
+                }).zipWith(bookMonoDB, (authors, bookDB) -> {
+                    List<BookAuthor> bookAuthorList = this.bookMapper.toBookAuthorList(authors, bookDB.getId());
+                    return this.bookAuthorDao.saveAllBookAuthor(bookAuthorList).then(Mono.just(bookDB.getId()));
+                })
+                .flatMap(bookIdMono -> bookIdMono);
     }
 
     @Override
