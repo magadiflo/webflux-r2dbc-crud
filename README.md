@@ -1264,14 +1264,11 @@ public class BookServiceImpl implements IBookService {
     @Override
     @Transactional(readOnly = true)
     public Mono<Page<IBookProjection>> findAllToPage(BookCriteria bookCriteria, Pageable pageable) {
-        /*
-        return bookRepository.findAllToPage(bookCriteria,pageable)
-        		.collectList()
-        		.switchIfEmpty(Mono.error(new ApiException("Not result", HttpStatus.NO_CONTENT)))
-        		.zipWith(bookRepository.findCountBookAuthorByCriteria(bookCriteria))
-        		.map(result -> new PageImpl<>(result.getT1(), pageable, result.getT2()));
-         */
-        return null;
+        Mono<Long> countBookAuthorByCriteria = this.bookAuthorDao.findCountBookAuthorByCriteria(bookCriteria);
+        return this.bookAuthorDao.findAllToPage(bookCriteria, pageable)
+                .collectList()
+                .switchIfEmpty(Mono.error(new ApiException("Not result", HttpStatus.NO_CONTENT)))
+                .zipWith(countBookAuthorByCriteria, (iBookProjections, total) -> new PageImpl<>(iBookProjections, pageable, total));
     }
 
     @Override
@@ -1366,13 +1363,12 @@ public class BookRestController {
     private final IBookService bookService;
 
     @GetMapping(path = "/pages")
-    public Mono<ResponseEntity<Page<IBookProjection>>> findAllPage(
-            @RequestParam(name = "q", defaultValue = "", required = false) String q,
-            @RequestParam(name = "page", defaultValue = "0", required = false) int page,
-            @RequestParam(name = "size", defaultValue = "5", required = false) int size,
-            @RequestParam(name = "sortBy", defaultValue = "bookId", required = false) String sortBy,
-            @RequestParam(name = "sortDirection", defaultValue = "asc", required = false) String sortDirection,
-            @DateTimeFormat(pattern = "dd/MM/yyyy") LocalDate publicationDate) {
+    public Mono<ResponseEntity<Page<IBookProjection>>> findAllPage(@RequestParam(name = "q", defaultValue = "", required = false) String q,
+                                                                   @RequestParam(name = "page", defaultValue = "0", required = false) int page,
+                                                                   @RequestParam(name = "size", defaultValue = "5", required = false) int size,
+                                                                   @RequestParam(name = "sortBy", defaultValue = "bookId", required = false) String sortBy,
+                                                                   @RequestParam(name = "sortDirection", defaultValue = "asc", required = false) String sortDirection,
+                                                                   @DateTimeFormat(pattern = "dd/MM/yyyy") LocalDate publicationDate) {
 
         String[] sortArray = sortBy.contains(",") ?
                 Arrays.stream(sortBy.split(",")).map(String::trim).toArray(String[]::new) :

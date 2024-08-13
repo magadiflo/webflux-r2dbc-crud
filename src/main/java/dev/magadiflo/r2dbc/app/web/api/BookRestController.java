@@ -28,13 +28,12 @@ public class BookRestController {
     private final IBookService bookService;
 
     @GetMapping(path = "/pages")
-    public Mono<ResponseEntity<Page<IBookProjection>>> findAllPage(
-            @RequestParam(name = "q", defaultValue = "", required = false) String q,
-            @RequestParam(name = "page", defaultValue = "0", required = false) int page,
-            @RequestParam(name = "size", defaultValue = "5", required = false) int size,
-            @RequestParam(name = "sortBy", defaultValue = "bookId", required = false) String sortBy,
-            @RequestParam(name = "sortDirection", defaultValue = "asc", required = false) String sortDirection,
-            @DateTimeFormat(pattern = "dd/MM/yyyy") LocalDate publicationDate) {
+    public Mono<ResponseEntity<Page<IBookProjection>>> findAllPage(@RequestParam(name = "q", defaultValue = "", required = false) String q,
+                                                                   @RequestParam(name = "page", defaultValue = "0", required = false) int page,
+                                                                   @RequestParam(name = "size", defaultValue = "5", required = false) int size,
+                                                                   @RequestParam(name = "sortBy", defaultValue = "bookId", required = false) String sortBy,
+                                                                   @RequestParam(name = "sortDirection", defaultValue = "asc", required = false) String sortDirection,
+                                                                   @DateTimeFormat(pattern = "dd/MM/yyyy") LocalDate publicationDate) {
 
         String[] sortArray = sortBy.contains(",") ?
                 Arrays.stream(sortBy.split(",")).map(String::trim).toArray(String[]::new) :

@@ -14,6 +14,7 @@ import dev.magadiflo.r2dbc.app.utils.BookMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -35,14 +36,11 @@ public class BookServiceImpl implements IBookService {
     @Override
     @Transactional(readOnly = true)
     public Mono<Page<IBookProjection>> findAllToPage(BookCriteria bookCriteria, Pageable pageable) {
-        /*
-        return bookRepository.findAllToPage(bookCriteria,pageable)
-        		.collectList()
-        		.switchIfEmpty(Mono.error(new ApiException("Not result", HttpStatus.NO_CONTENT)))
-        		.zipWith(bookRepository.findCountBookAuthorByCriteria(bookCriteria))
-        		.map(result -> new PageImpl<>(result.getT1(), pageable, result.getT2()));
-         */
-        return null;
+        Mono<Long> countBookAuthorByCriteria = this.bookAuthorDao.findCountBookAuthorByCriteria(bookCriteria);
+        return this.bookAuthorDao.findAllToPage(bookCriteria, pageable)
+                .collectList()
+                .switchIfEmpty(Mono.error(new ApiException("Not result", HttpStatus.NO_CONTENT)))
+                .zipWith(countBookAuthorByCriteria, (iBookProjections, total) -> new PageImpl<>(iBookProjections, pageable, total));
     }
 
     @Override
