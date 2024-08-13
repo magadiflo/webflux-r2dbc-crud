@@ -22,7 +22,7 @@ public interface IBookAuthorDao {
 
     Mono<Boolean> existBookAuthorByAuthorId(Integer authorId);
 
-    Flux<IBookProjection> findAllBookAuthorByBookId(Integer bookId);
+    Mono<IBookProjection> findAllBookAuthorByBookId(Integer bookId);
 
     Mono<Void> deleteBookAuthorByBookId(Integer bookId);
 

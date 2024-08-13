@@ -48,8 +48,8 @@ public class BookServiceImpl implements IBookService {
     @Override
     @Transactional(readOnly = true)
     public Mono<IBookProjection> findBookById(Integer bookId) {
-        //return bookRepository.findByBookId(bookId);
-        return null;
+        return this.bookAuthorDao.findAllBookAuthorByBookId(bookId)
+                .switchIfEmpty(Mono.error(new ApiException("No hay resultados con bookId: %d".formatted(bookId), HttpStatus.NOT_FOUND)));
     }
 
     @Override

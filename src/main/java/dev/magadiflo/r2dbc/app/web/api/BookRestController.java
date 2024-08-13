@@ -51,7 +51,7 @@ public class BookRestController {
     @GetMapping(path = "/{bookId}")
     public Mono<ResponseEntity<IBookProjection>> getBook(@PathVariable Integer bookId) {
         return this.bookService.findBookById(bookId)
-                .flatMap(bookProjection -> Mono.just(new ResponseEntity<>(bookProjection, HttpStatus.OK)));
+                .flatMap(bookProjection -> Mono.just(ResponseEntity.ok(bookProjection)));
     }
 
     @PostMapping

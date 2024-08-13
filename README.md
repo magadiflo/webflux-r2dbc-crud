@@ -583,7 +583,7 @@ public interface IBookProjection {
         if (getConcatAuthors() == null || getConcatAuthors().isEmpty()) {
             return new ArrayList<>();
         }
-        return Arrays.asList(getConcatAuthors().split(", "));
+        return Arrays.asList(getConcatAuthors().split(","));
     }
 }
 ````
@@ -877,7 +877,7 @@ public interface IBookAuthorDao {
 
     Mono<Boolean> existBookAuthorByAuthorId(Integer authorId);
 
-    Flux<IBookProjection> findAllBookAuthorByBookId(Integer bookId);
+    Mono<IBookProjection> findAllBookAuthorByBookId(Integer bookId);
 
     Mono<Void> deleteBookAuthorByBookId(Integer bookId);
 
@@ -1051,31 +1051,34 @@ public class BookAuthorDaoImpl implements IBookAuthorDao {
     }
 
     @Override
-    public Flux<IBookProjection> findAllBookAuthorByBookId(Integer bookId) {
+    public Mono<IBookProjection> findAllBookAuthorByBookId(Integer bookId) {
         String sql = """				
-                SELECT ba.book_id as bookId, b.title as title, b.publication_date as publicationDate, b.online_availability as onlineAvailability,
-                        STRING_AGG(a.first_name||' '||a.last_name, ', ') as concatAuthors
-                FROM book_authors ba
-                    INNER JOIN books b ON ba.book_id = b.id
-                    INNER JOIN authors a ON ba.author_id = a.id
+                SELECT b.id AS id,
+                        b.title AS title,
+                        b.publication_date AS publicationDate,
+                        b.online_availability AS onlineAvailability,
+                        STRING_AGG(a.first_name||' '||a.last_name, ',') AS concatAuthors
+                FROM book_authors AS ba
+                    INNER JOIN books AS b ON(ba.book_id = b.id)
+                    INNER JOIN authors AS a ON(ba.author_id = a.id)
                 WHERE b.id = :bookId
-                GROUP BY ba.book_id, b.title, b.publication_date, b.online_availability
+                GROUP BY b.id, b.title, b.publication_date, b.online_availability
                 """;
 
         return databaseClient.sql(sql)
                 .bind("bookId", bookId)
                 .map((row, metadata) -> {
-                    log.info("publicationDate {} ", metadata.getColumnMetadata("publicationDate"));
+                    log.info("Metadata de publicationDate: {} ", metadata.getColumnMetadata("publicationDate"));
 
                     return (IBookProjection) BookVO.builder()
-                            .id(row.get("bookId", Integer.class))
+                            .id(row.get("id", Integer.class))
                             .title(row.get("title", String.class))
                             .publicationDate(row.get("publicationDate", LocalDate.class))
                             .onlineAvailability(row.get("onlineAvailability", Boolean.class))
                             .concatAuthors(row.get("concatAuthors", String.class))
                             .build();
-                }).all()
-                .switchIfEmpty(Mono.error(new ApiException("No record found.", HttpStatus.NOT_FOUND)));
+                })
+                .first();
     }
 
     @Override
@@ -1274,8 +1277,8 @@ public class BookServiceImpl implements IBookService {
     @Override
     @Transactional(readOnly = true)
     public Mono<IBookProjection> findBookById(Integer bookId) {
-        //return bookRepository.findByBookId(bookId);
-        return null;
+        return this.bookAuthorDao.findAllBookAuthorByBookId(bookId)
+                .switchIfEmpty(Mono.error(new ApiException("No hay resultados con bookId: %d".formatted(bookId), HttpStatus.NOT_FOUND)));
     }
 
     @Override
@@ -1386,7 +1389,7 @@ public class BookRestController {
     @GetMapping(path = "/{bookId}")
     public Mono<ResponseEntity<IBookProjection>> getBook(@PathVariable Integer bookId) {
         return this.bookService.findBookById(bookId)
-                .flatMap(bookProjection -> Mono.just(new ResponseEntity<>(bookProjection, HttpStatus.OK)));
+                .flatMap(bookProjection -> Mono.just(ResponseEntity.ok(bookProjection)));
     }
 
     @PostMapping
