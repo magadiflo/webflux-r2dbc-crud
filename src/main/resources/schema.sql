@@ -1,8 +1,4 @@
-DROP TABLE IF EXISTS book_authors;
-DROP TABLE IF EXISTS books;
-DROP TABLE IF EXISTS authors;
-
-CREATE TABLE authors(
+CREATE TABLE IF NOT EXISTS authors(
     id SERIAL,
     first_name VARCHAR(45) NOT NULL,
     last_name VARCHAR(45) NOT NULL,
@@ -10,7 +6,7 @@ CREATE TABLE authors(
     CONSTRAINT pk_authors PRIMARY KEY(id)
 );
 
-CREATE TABLE books(
+CREATE TABLE IF NOT EXISTS books(
     id SERIAL,
     title VARCHAR(255) NOT NULL,
     publication_date DATE NOT NULL,
@@ -18,7 +14,7 @@ CREATE TABLE books(
     CONSTRAINT pk_books PRIMARY KEY(id)
 );
 
-CREATE TABLE book_authors(
+CREATE TABLE IF NOT EXISTS book_authors(
     book_id INTEGER NOT NULL,
     author_id INTEGER NOT NULL,
     CONSTRAINT fk_books_book_authors FOREIGN KEY(book_id) REFERENCES books(id),

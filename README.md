@@ -165,11 +165,7 @@ En el directorio `/resources` crearemos un archivo llamado `schema.sql` donde de
 `books` y su relación de muchos a muchos, con el que generamos una tabla intermedia `book_authors`:
 
 ````sql
-DROP TABLE IF EXISTS book_authors;
-DROP TABLE IF EXISTS books;
-DROP TABLE IF EXISTS authors;
-
-CREATE TABLE authors(
+CREATE TABLE IF NOT EXISTS authors(
     id SERIAL,
     first_name VARCHAR(45) NOT NULL,
     last_name VARCHAR(45) NOT NULL,
@@ -177,7 +173,7 @@ CREATE TABLE authors(
     CONSTRAINT pk_authors PRIMARY KEY(id)
 );
 
-CREATE TABLE books(
+CREATE TABLE IF NOT EXISTS books(
     id SERIAL,
     title VARCHAR(255) NOT NULL,
     publication_date DATE NOT NULL,
@@ -185,7 +181,7 @@ CREATE TABLE books(
     CONSTRAINT pk_books PRIMARY KEY(id)
 );
 
-CREATE TABLE book_authors(
+CREATE TABLE IF NOT EXISTS book_authors(
     book_id INTEGER NOT NULL,
     author_id INTEGER NOT NULL,
     CONSTRAINT fk_books_book_authors FOREIGN KEY(book_id) REFERENCES books(id),
@@ -208,9 +204,12 @@ en el classpath y ejecutará el script SQL para inicializar la base de datos cua
 public class SchemaConfig {
     @Bean
     public ConnectionFactoryInitializer initializer(ConnectionFactory connectionFactory) {
+        ClassPathResource resource = new ClassPathResource("schema.sql");
+        ResourceDatabasePopulator resourceDatabasePopulator = new ResourceDatabasePopulator(resource);
+
         ConnectionFactoryInitializer initializer = new ConnectionFactoryInitializer();
         initializer.setConnectionFactory(connectionFactory);
-        initializer.setDatabasePopulator(new ResourceDatabasePopulator(new ClassPathResource("schema.sql")));
+        initializer.setDatabasePopulator(resourceDatabasePopulator);
         return initializer;
     }
 }
@@ -220,8 +219,8 @@ public class SchemaConfig {
 
 ## Definiendo Modelo de Datos
 
-Crearemos los modelos de datos correspondiente a las tablas que definimos en el `schema.sql`. Estas clases serán creadas
-en el directorio `/persistence/entity`:
+Crearemos los modelos de datos correspondientes a las tablas que definimos en el `schema.sql`. Estas clases serán
+creadas en el directorio `/persistence/entity`:
 
 ````java
 
@@ -276,7 +275,7 @@ public class BookAuthor {
 > realizarlas con SQL nativo.
 >
 > Otro punto que menciona el autor es que la idea de una tabla detalle (resultante de la relación de muchos a muchos),
-> es que no tenga una clave primaria, sino más bien solo tenga las claves foráneas correspondiente a las tablas
+> es que no tenga una clave primaria, sino más bien solo tenga las claves foráneas correspondientes a las tablas
 > principales.
 
 ## Creando interfaces de Repositorio
@@ -298,13 +297,25 @@ public interface IBookRepository extends ReactiveCrudRepository<Book, Integer> {
 Ahora, mostramos la creación del repositorio `IAuthorRepository` para la entidad `Author`:
 
 ````java
+
 public interface IAuthorRepository extends ReactiveCrudRepository<Author, Integer> {
+
+    /**
+     * @param author
+     * @return affectedRows
+     */
+    @Modifying
     @Query(value = """
             INSERT INTO authors(first_name, last_name, birthdate)
             VALUES(:#{#author.firstName}, :#{#author.lastName}, :#{#author.birthdate})
             """)
     Mono<Integer> saveAuthor(@Param(value = "author") Author author);
 
+    /**
+     * @param author
+     * @return affectedRows
+     */
+    @Modifying
     @Query(value = """
             UPDATE authors
             SET first_name = :#{#author.firstName},
@@ -315,53 +326,108 @@ public interface IAuthorRepository extends ReactiveCrudRepository<Author, Intege
     Mono<Integer> updateAuthor(@Param(value = "author") Author author);
 
     @Query("""
-            SELECT COUNT(a.id)
-            FROM authors AS a
-            WHERE a.first_name LIKE '%' || :q || '%' OR a.last_name LIKE '%' || :q || '%'
-            """)
-    Mono<Integer> findCountByQ(@Param(value = "q") String q);
-
-    @Query("""
             SELECT a.id, a.first_name, a.last_name, CONCAT(a.first_name, ' ', a.last_name) AS full_name, a.birthdate
             FROM authors AS a
             WHERE a.id = :authorId
             """)
     Mono<IAuthorProjection> findByAuthorId(@Param(value = "authorId") Integer authorId);
 
-    @Query("""
-            SELECT a.id, a.first_name, a.last_name, a.first_name || ' ' || a.last_name AS full_name, a.birthdate
+    @Query(value = """
+            SELECT a.id,
+                    a.first_name,
+                    a.last_name,
+                    a.birthdate
             FROM authors AS a
-            WHERE a.first_name LIKE CONCAT('%',:q,'%') OR a.last_name LIKE CONCAT('%',:q,'%')
-            ORDER BY a.id ASC
-            LIMIT :#{#pageable.pageSize} OFFSET :#{#pageable.offset}
+            WHERE a.id IN(:authorIds)
             """)
-    Flux<IAuthorProjection> findByQ(@Param(value = "q") String q, @Param(value = "pageable") Pageable pageable);
+    Flux<Author> findAllAuthorsByIdIn(List<Integer> authorIds);
+
+    @Query(value = """
+            SELECT COUNT(a.id)
+            FROM authors AS a
+            WHERE a.first_name LIKE :#{'%' + #query + '%'}
+                OR a.last_name LIKE :#{'%' + #query + '%'}
+            """)
+    Mono<Integer> findCountByQuery(String query);
+
+    @Query(value = """
+            SELECT  a.id,
+                    a.first_name,
+                    a.last_name,
+                    a.birthdate
+            FROM authors AS a
+            WHERE a.first_name LIKE :#{'%' + #query + '%'}
+                OR a.last_name LIKE :#{'%' + #query + '%'}
+            ORDER BY a.id ASC
+            LIMIT :#{#pageable.getPageSize()}
+            OFFSET :#{#pageable.getOffset()}
+            """)
+    Flux<IAuthorProjection> findByQuery(String query, Pageable pageable);
 }
 ````
 
 En la interfaz anterior hemos definido métodos personalizados, donde:
 
 - Usamos la anotación `@Query()` para definir nuestra consulta.
+
+
 - La consulta usada en la anotación `@Query()` es `SQL nativo`, ya que estamos trabajando con `Spring Data R2DBC`
-  y no con `Spring Data JPA`, aunque dicho sea de paso, con Spring Data JPA también se puede trabajar con `SQL nativo`
+  y no con `Spring Data JPA`, aunque dicho sea de paso, con `Spring Data JPA` también se puede trabajar con `SQL nativo`
   solo que en ese caso es necesario agregar el atributo `nativeQuery` en la anotación de la siguiente manera
   `@Query(value = "TU_CONSULTA_SQL", nativeQuery = true)`, mientras que con `Spring Data R2DBC` usamos
   la consulta SQL directamente en la anotación.
-- En `Spring Data JPA` cuando definimos una consulta personalizada, a través de la anotación `@Query()`, que modifica
-  los registros de la base de datos, ya sea usando JPQL o SQL nativo; consultas como `INSERT, UPDATE o DELETE` es
-  necesario agregar al método personalizado la anotación `@Modifying`. En nuestro caso, como estamos usando
-  `Spring Data R2DBC`, no es necesario agregar dicha anotación, por eso es que nuestros métodos `saveAuthor()` y
-  `updateAuthor()` carecen de él.
+
+
+- La anotación `@Modifying` indica que un método de consulta debe considerarse una consulta de modificación que no
+  devuelve nada o la cantidad de `filas afectadas` por la consulta. Los métodos de consulta anotados con `@Modifying`
+  suelen ser instrucciones `INSERT, UPDATE, DELETE y DDL` que no devuelven resultados tabulares.
+
+
 - Normalmente, cuando definimos parámetros a nuestros métodos de repositorio, si son pocos parámetros podemos definirlos
   uno a uno, pero si son muchos parámetros, podemos pasarle directamente un objeto que tendrá las propiedades que
-  usaremos en la consulta. En nuestro caso, observemos la firma de nuestro método saveAuthor()
-  `Mono<Integer> saveAuthor(@Param(value = "author") Author author)`, le estamos pasando la clase Author.
-- Para usar las propiedades del objeto pasado por parámetro dentro de la consulta SQL usamos la siguiente expresión:
-  `:#{#author.firstName}`, donde `author` es el parámetro definido en el método y `firstName` es la propiedad del
-  objeto.
+  usaremos en la consulta. En nuestro caso, observemos la firma de nuestro método `saveAuthor()`
+  `Mono<Integer> saveAuthor(@Param(value = "author") Author author)`, le estamos pasando la clase `Author`.
 
-Algo importante que se debe resaltar en las consultas personalizadas del repositorio anterior es que en los métodos
-`findByAuthorId` y `findByQ` estamos usando el concepto de `Projections` (a modo de ejemplo), con
+
+- Para usar las propiedades del objeto pasado por parámetro dentro de la consulta SQL usamos `SpEL`, por ejemplo:
+  `:#{#author.firstName}`, donde `author` es el parámetro definido en el método y `firstName` es la propiedad del
+  objeto. Esta sintaxis se utiliza para acceder a expresiones `SpEL (Spring Expression Language)`. Permite referenciar
+  propiedades y métodos de objetos directamente en la consulta.
+
+- El prefijo `#{}` indica que se está utilizando `SpEL`, y el símbolo `#` se utiliza para acceder a los parámetros del
+  método o a las propiedades del objeto. Por ejemplo. `:#{#pageable.getPageSize()}` accede al método `getPageSize()` del
+  objeto `Pageable` pasado como parámetro.
+
+**NOTA**
+
+En la siguiente consulta que hemos creado:
+
+````java
+
+@Query(value = """
+        SELECT  a.id,
+                a.first_name,
+                a.last_name,
+                a.birthdate
+        FROM authors AS a
+        WHERE a.first_name LIKE :#{'%' + #query + '%'}
+            OR a.last_name LIKE :#{'%' + #query + '%'}
+        ORDER BY a.id ASC
+        LIMIT :#{#pageable.getPageSize()}
+        OFFSET :#{#pageable.getOffset()}
+        """)
+Flux<IAuthorProjection> findByQuery(String query, Pageable pageable);
+````
+
+Estamos pasando por parámetro un `String query` y un `Pageable pageable`. Centrémonos en el objeto `pageable`. Estamos
+agregando este objeto `pageable` por parámetro con la única finalidad de poder usar los valores internos que nos
+proporcione su implementación. En otras palabras, lo que pasemos por parámetro del método `findByQuery()` es una
+variable `query` y la implementación de la interfaz `Pageable`. Esta implementación la podemos obtener de un
+`PageRequest.of(pageNumber, pageSize)`. Internamente, la implementación hace ciertas operaciones, las mismas que podemos
+obtenerlas, por ejemplo con el `getOffset()` que es la multiplicación del `pageNumber * pageSize`.
+
+Por otro lado, algo importante que se debe resaltar en las consultas personalizadas del repositorio anterior es que en
+los métodos `findByAuthorId` y `findByQuery` estamos usando el concepto de `Projections` (a modo de ejemplo), con
 `projections` podemos recuperar del total de columnas que tenga una tabla, solo las columnas que queramos. A
 continuación, veamos el tema más detalladamente:
 
@@ -517,15 +583,20 @@ public interface IBookProjection {
         if (getConcatAuthors() == null || getConcatAuthors().isEmpty()) {
             return new ArrayList<>();
         }
-        return Arrays.asList(getConcatAuthors().split(", "));
+        return Arrays.asList(getConcatAuthors().split(","));
     }
 }
 ````
 
 ## Creando DTOs
 
-A continuación mostramos todos los dtos creados usando `record`. Los primeros records creados son para las consultas
-que realizaremos usando `criteria`, es decir consultas que serán elaboradas de manera dinámica:
+A continuación mostramos todos los dtos creados usando `record` o `clases`. Los primeros records creados son para las
+consultas que realizaremos usando `criteria`, es decir consultas que serán elaboradas de manera dinámica:
+
+````java
+public record BookCriteria(String q, LocalDate publicationDate) {
+}
+````
 
 ````java
 public record AuthorCriteria(String firstName, Boolean lastName) {
@@ -537,38 +608,69 @@ public record AuthorFilter(String q) {
 }
 ````
 
+Para el siguiente dto utilizaremos una clase con anotaciones de lombook. La razón del porqué usamos una clase y no un
+record es porque esta clase será mapeada usando la dependencia de `ModelMapper` y según las pruebas que hice, la
+dependencia no trabaja bien con records sino más bien con clases. Si usamos record, posiblemente el mapeo no va a
+fallar, pero al inspeccionar el valor de los atributos mapeados, todos estarán en `null`.
+
 ````java
-public record BookCriteria(String q, LocalDate publicationDate) {
+
+@ToString
+@AllArgsConstructor
+@NoArgsConstructor
+@Builder
+@Setter
+@Getter
+public class RegisterBookDTO {
+    private String title;
+    @JsonFormat(pattern = "dd/MM/yyyy")
+    private LocalDate publicationDate;
+    private List<Integer> authors;
+    private Boolean onlineAvailability = false;
 }
 ````
 
+Para el siguiente dto no vamos a usar un `record` sino más bien una clase normal de java. La razón del porqué este
+record se creará usando una clase normal de java es porque vamos a usarlo para mapearlo a una entidad del tipo `Author`
+y para dicho mapeo vamos a usar la dependencia de `ModelMapper`. Esta dependencia nos ayudará a mapear automáticamente
+una clase java en otra.
+
+Si uso un `record` con la dependencia `ModelMapper`, el mapeo va a fallar, los atributos de la clase de destino se
+mostrarán en `null`, en otras palabras, según las pruebas que hice, `ModelMapper` no soporta el uso de `records`
+para realizar el mapeo.
+
 ````java
-public record RegisterAuthorDTO(String firstName,
-                                String lastName,
-                                @JsonFormat(pattern = "dd/MM/yyyy") LocalDate birthdate) {
+
+@ToString
+@AllArgsConstructor
+@NoArgsConstructor
+@Builder
+@Setter
+@Getter
+public class RegisterAuthorDTO {
+    private String firstName;
+    private String lastName;
+    @JsonFormat(pattern = "dd/MM/yyyy")
+    private LocalDate birthdate;
 }
 ````
 
-En el siguiente `record` se ha definido un `constructor compacto` para poder darle un valor por defecto al atributo
-`onlineAvailability` cuando se cree el objeto del record con valor `null` para dicho atributo:
+El siguiente record también será creado usando una clase simple de java por la misma razón que se mencionó
+en el apartado superior.
 
 ````java
-public record RegisterBookDTO(String title,
-                              @JsonFormat(pattern = "dd/MM/yyyy") LocalDate publicationDate,
-                              List<Integer> authors,
-                              Boolean onlineAvailability) {
-    // Constructor compacto
-    // Las asignaciones se realizan de manera automática
-    public RegisterBookDTO {
-        onlineAvailability = onlineAvailability != null && onlineAvailability;
-    }
-}
-````
 
-````java
-public record UpdateAuthorDTO(String firstName,
-                              String lastName,
-                              @JsonFormat(pattern = "dd/MM/yyyy") LocalDate birthdate) {
+@ToString
+@AllArgsConstructor
+@NoArgsConstructor
+@Builder
+@Setter
+@Getter
+public class UpdateAuthorDTO {
+    private String firstName;
+    private String lastName;
+    @JsonFormat(pattern = "dd/MM/yyyy")
+    private LocalDate birthdate;
 }
 ````
 
@@ -624,13 +726,13 @@ public interface IAuthorService {
 
     Mono<IAuthorProjection> findAuthorById(Integer authorId);
 
-    Mono<Page<IAuthorProjection>> findAllToPage(AuthorFilter authorFilter, Pageable pageable);
+    Mono<Page<IAuthorProjection>> findAllToPage(String query, int pageNumber, int pageSize);
 
     Mono<Integer> saveAuthor(RegisterAuthorDTO registerAuthorDTO);
 
     Mono<IAuthorProjection> updateAuthor(Integer authorId, UpdateAuthorDTO updateAuthorDTO);
 
-    Mono<Void> deleteAuthor(Integer authorId);
+    Mono<Boolean> deleteAuthor(Integer authorId);
 }
 ````
 
@@ -640,9 +742,9 @@ public interface IBookService {
 
     Mono<IBookProjection> findBookById(Integer bookId);
 
-    Mono<Void> saveBook(RegisterBookDTO registerBookDTO);
+    Mono<Integer> saveBook(RegisterBookDTO registerBookDTO);
 
-    Mono<Void> deleteBook(Integer bookId);
+    Mono<Boolean> deleteBook(Integer bookId);
 }
 ````
 
@@ -656,8 +758,8 @@ Ahora implementaremos las interfaces anteriores:
 public class AuthorServiceImpl implements IAuthorService {
 
     private final IAuthorRepository authorRepository;
-    private final IBookRepository bookRepository;
-    private final ModelMapper modelMapper;
+    private final IBookAuthorDao bookAuthorDao;
+    private final AuthorMapper authorMapper;
 
     @Override
     @Transactional(readOnly = true)
@@ -674,70 +776,478 @@ public class AuthorServiceImpl implements IAuthorService {
 
     @Override
     @Transactional(readOnly = true)
-    public Mono<Page<IAuthorProjection>> findAllToPage(AuthorFilter authorFilter, Pageable pageable) {
-        return this.authorRepository.findByQ(authorFilter.q(), pageable)
-                .collectList()
-                .switchIfEmpty(Mono.error(new ApiException("No hay resultados", HttpStatus.NO_CONTENT)))
-                .zipWith(this.authorRepository.findCountByQ(authorFilter.q()),
-                        (iAuthorProjections, count) -> new PageImpl<>(iAuthorProjections, pageable, count));
+    public Mono<Page<IAuthorProjection>> findAllToPage(String query, int pageNumber, int pageSize) {
+        Pageable pageable = PageRequest.of(pageNumber, pageSize);
+        Mono<Integer> totalRecords = this.authorRepository.findCountByQuery(query);
 
+        return this.authorRepository.findByQuery(query, pageable)
+                .collectList()
+                .zipWith(totalRecords, (authorProjections, total) -> new PageImpl<>(authorProjections, pageable, total));
     }
 
     @Override
     @Transactional
     public Mono<Integer> saveAuthor(RegisterAuthorDTO registerAuthorDTO) {
         return Mono.just(registerAuthorDTO)
-                .flatMap(dto -> {
-                    try {
-                        return Mono.just(this.modelMapper.map(dto, Author.class));
-                    } catch (MappingException e) {
-                        log.error(e.getMessage());
-                        return Mono.error(new ApiException("Error al insertar datos", HttpStatus.BAD_REQUEST));
-                    }
-                })
-                .flatMap(this.authorRepository::saveAuthor);
+                .flatMap(dto -> this.authorMapper.toAuthor(registerAuthorDTO))
+                .flatMap(this.authorRepository::saveAuthor)
+                .doOnNext(affectedRows -> log.info("Filas afectadas en el insert: {}", affectedRows));
     }
 
     @Override
     @Transactional
     public Mono<IAuthorProjection> updateAuthor(Integer authorId, UpdateAuthorDTO updateAuthorDTO) {
-        return Mono.just(updateAuthorDTO)
-                .flatMap(dto -> {
-                    try {
-                        Author authorEntity = this.modelMapper.map(dto, Author.class);
-                        authorEntity.setId(authorId);
-                        return Mono.just(authorEntity);
-                    } catch (MappingException e) {
-                        return Mono.error(new ApiException("Error al actualizar", HttpStatus.BAD_REQUEST));
-                    }
-                })
+        return this.authorRepository.findById(authorId)
+                .flatMap(authorDB -> this.authorMapper.toAuthor(updateAuthorDTO, authorId))
                 .flatMap(this.authorRepository::updateAuthor)
-                .flatMap(this.authorRepository::findByAuthorId);
+                .doOnNext(affectedRows -> log.info("Filas afectadas en el update: {}", affectedRows))
+                .flatMap(affectedRows -> this.authorRepository.findByAuthorId(authorId))
+                .switchIfEmpty(Mono.error(new ApiException("No se encontró el author con id %s para actualizar".formatted(authorId), HttpStatus.NOT_FOUND)));
     }
 
     @Override
     @Transactional
-    public Mono<Void> deleteAuthor(Integer authorId) {
-        /*
-        return bookRepository.existBookAuthorByAuthorId(authorId)
-            .flatMap(existBookAuthor -> {
+    public Mono<Boolean> deleteAuthor(Integer authorId) {
+        return this.authorRepository.findById(authorId)
+                .flatMap(authorDB -> this.bookAuthorDao.existBookAuthorByAuthorId(authorId))
+                .flatMap(existsBookAuthor -> {
+                    log.info("Existe el author en la tabla book_authors?: {}", existsBookAuthor);
+                    if (existsBookAuthor) {
+                        return this.bookAuthorDao.deleteBookAuthorByAuthorId(authorId).then(Mono.just(true));
+                    }
+                    return Mono.just(true);
+                })
+                .flatMap(canContinue -> this.authorRepository.deleteById(authorId).then(Mono.just(true)))
+                .switchIfEmpty(Mono.error(new ApiException("No se encontró el author con id %s para eliminar".formatted(authorId), HttpStatus.NOT_FOUND)));
+    }
+}
 
-                if (existBookAuthor) {
-                    return bookRepository.deleteBookAuthorByAuthorId(authorId);
-                }
+````
 
-                return bookRepository.deleteBookAuthorByAuthorId(authorId)
-                        .then(authorRepository.deleteById(authorId));
+La clase de servicio anterior está haciendo uso de una clase `AuthorMapper` para realizar el mapeo de un dto a una
+entidad persistente. Esta clase, además es la que usa la dependencia que agregamos en el `pom.xml`, el `ModelMapper`
+quien nos facilitará en hacer el mapeo de una clase dto a una clase de tipo persistente.
 
-            });
-         */
-        return null;
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@Component
+public class AuthorMapper {
+
+    private final ModelMapper modelMapper;
+
+    public Mono<Author> toAuthor(RegisterAuthorDTO registerAuthor) {
+        try {
+            Author author = this.modelMapper.map(registerAuthor, Author.class);
+            return Mono.just(author);
+        } catch (Exception e) {
+            log.error("Error en mapeo para registrar author:: {}", e.getMessage());
+            return Mono.error(new ApiException("Error al mapear entidad Author", HttpStatus.BAD_REQUEST));
+        }
+    }
+
+    public Mono<Author> toAuthor(UpdateAuthorDTO registerAuthor, Integer authorId) {
+        try {
+            Author author = this.modelMapper.map(registerAuthor, Author.class);
+            author.setId(authorId);
+            return Mono.just(author);
+        } catch (Exception e) {
+            log.error("Error en mapeo para actualizar author:: {}", e.getMessage());
+            return Mono.error(new ApiException("Error al mapear entidad Author", HttpStatus.BAD_REQUEST));
+        }
     }
 }
 ````
 
-En la implementación del servicio `BookServiceImpl` solo dejaremos definida la clase. El código comentado es porque
-en el tutorial original no está implementado:
+La clase de servicio `AuthorServiceImpl` también usa la implementación de la interfaz `IBookAuthorDao`, misma que
+a continuación pasamos a documentar.
+
+````java
+public interface IBookAuthorDao {
+    Mono<Long> findCountBookAuthorByCriteria(BookCriteria bookCriteria);
+
+    Mono<Long> saveBookAuthor(BookAuthor bookAuthor);
+
+    Mono<Void> saveAllBookAuthor(List<BookAuthor> bookAuthor);
+
+    Mono<IBookProjection> findByBookId(Integer bookId);
+
+    Mono<Boolean> existBookAuthorByBookId(Integer bookId);
+
+    Mono<Boolean> existBookAuthorByAuthorId(Integer authorId);
+
+    Mono<IBookProjection> findAllBookAuthorByBookId(Integer bookId);
+
+    Mono<Void> deleteBookAuthorByBookId(Integer bookId);
+
+    Mono<Void> deleteBookAuthorByAuthorId(Integer authorId);
+
+    Flux<IBookProjection> findAllToPage(BookCriteria bookCriteria, Pageable pageable);
+}
+````
+
+A continuación se muestra la implementación de la interfaz anterior:
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@Repository
+public class BookAuthorDaoImpl implements IBookAuthorDao {
+
+    /**
+     * DatabaseClient, su símil sería jdbcTemplate, aquí usamos SQL nativo para hacer las consultas.
+     */
+    private final DatabaseClient databaseClient;
+
+    @Override
+    public Mono<Long> findCountBookAuthorByCriteria(BookCriteria bookCriteria) {
+        String select = "SELECT COUNT(b.id) AS result ";
+        String from = "FROM books b ";
+        String where = "";
+
+        StringBuilder sqlWhere = new StringBuilder();
+        boolean flag = false;
+
+        if (StringUtils.hasText(bookCriteria.q())) {
+
+            if (flag) {
+                sqlWhere.append("OR ");
+            }
+
+            sqlWhere.append("b.title LIKE :q ");
+            flag = true;
+        }
+
+        if (bookCriteria.publicationDate() != null) {
+
+            if (flag) {
+                sqlWhere.append("OR ");
+            }
+
+            sqlWhere.append("b.publicationDate = :publicationDate ");
+            flag = true;
+        }
+
+        if (flag) {
+            where = sqlWhere.insert(0, "WHERE ").toString();
+        }
+
+        String sql = select + from + where;
+        log.info(sql);
+
+        DatabaseClient.GenericExecuteSpec ges = databaseClient.sql(sql);
+
+        if (StringUtils.hasText(bookCriteria.q())) {
+            ges = ges.bind("q", "%" + bookCriteria.q() + "%");
+        }
+
+        if (bookCriteria.publicationDate() != null) {
+            ges = ges.bind("publicationDate", bookCriteria.publicationDate());
+        }
+
+        return ges.map((row, metadata) -> {
+                    log.info("count result {}", metadata.getColumnMetadata("result").toString());
+                    return row.get("result", Long.class);
+                }).first()
+                .switchIfEmpty(Mono.error(new ApiException("No record found for book", HttpStatus.NOT_FOUND)));
+    }
+
+    @Override
+    public Mono<Long> saveBookAuthor(BookAuthor bookAuthor) {
+        return this.databaseClient.sql("""
+                        INSERT INTO book_authors(book_id, author_id)
+                        VALUES(:bookId, :authorId)
+                        """)
+                .bind("bookId", bookAuthor.getBookId())
+                .bind("authorId", bookAuthor.getAuthorId())
+                .fetch()
+                .rowsUpdated()
+                .onErrorMap(error -> new ApiException("Error al insertar en la tabla book_authors" + error.getMessage(), HttpStatus.BAD_REQUEST));
+    }
+
+    @Override
+    public Mono<Void> saveAllBookAuthor(List<BookAuthor> bookAuthorList) {
+        List<Mono<Long>> inserts = bookAuthorList.stream()
+                .map(bookAuthorToSave -> this.databaseClient.sql("""
+                                INSERT INTO book_authors(book_id, author_id)
+                                VALUES(:bookId, :authorId)
+                                """)
+                        .bind("bookId", bookAuthorToSave.getBookId())
+                        .bind("authorId", bookAuthorToSave.getAuthorId())
+                        .fetch()
+                        .rowsUpdated()
+                        .onErrorMap(error -> new ApiException(error.getMessage(), HttpStatus.BAD_REQUEST))
+                )
+                .toList();
+
+        Flux<Long> concat = Flux.concat(inserts);
+        return concat.then();
+    }
+
+    @Override
+    public Mono<IBookProjection> findByBookId(Integer bookId) {
+        String sql = """				
+                SELECT ba.book_id as bookId, b.title as title, b.publication_date as publicationDate, b.online_availability as onlineAvailability,
+                        STRING_AGG(a.first_name||' '||a.last_name, ', ') as concatAuthors
+                FROM book_authors ba
+                    INNER JOIN books b ON ba.book_id = b.id
+                    INNER JOIN authors a ON ba.author_id = a.id
+                WHERE b.id = :bookId
+                GROUP BY ba.book_id, b.title, b.publication_date, b.online_availability
+                """;
+
+        return databaseClient.sql(sql)
+                .bind("bookId", bookId)
+                .map((row, metadata) -> {
+
+                    log.info("publicationDate {} ", metadata.getColumnMetadata("publicationDate"));
+
+                    return (IBookProjection) BookVO.builder()
+                            .id(row.get("bookId", Integer.class))
+                            .title(row.get("title", String.class))
+                            //.publicationDate(row.get("publicationDate",LocalDateTime.class) != null ? row.get("publicationDate",LocalDateTime.class).toLocalDate() : null)
+                            .publicationDate(row.get("publicationDate", LocalDate.class))
+                            .onlineAvailability(row.get("onlineAvailability", Boolean.class))
+                            .concatAuthors(row.get("concatAuthors", String.class))
+                            .build();
+                }).first()
+                .switchIfEmpty(Mono.error(new ApiException("No se encontraron registros para el libro con id: " + bookId, HttpStatus.NOT_FOUND)));
+    }
+
+    @Override
+    public Mono<Boolean> existBookAuthorByBookId(Integer bookId) {
+        String sql = """				
+                SELECT CASE
+                          WHEN COUNT(ba.book_id) > 0 THEN true
+                          ELSE false
+                       END as result
+                FROM book_authors AS ba
+                WHERE ba.book_id = :bookId
+                """;
+
+        return databaseClient.sql(sql)
+                .bind("bookId", bookId)
+                .map((row, metadata) -> row.get("result", Boolean.class))
+                .first();
+    }
+
+    @Override
+    public Mono<Boolean> existBookAuthorByAuthorId(Integer authorId) {
+        String sql = """				
+                SELECT CASE
+                            WHEN COUNT(ba.book_id) > 0 THEN true
+                            ELSE false
+                       END as result
+                FROM book_authors AS ba
+                WHERE ba.author_id = :authorId
+                """;
+
+        return this.databaseClient.sql(sql)
+                .bind("authorId", authorId)
+                .map((row, metadata) -> row.get("result", Boolean.class))
+                .first();
+    }
+
+    @Override
+    public Mono<IBookProjection> findAllBookAuthorByBookId(Integer bookId) {
+        String sql = """				
+                SELECT b.id AS id,
+                        b.title AS title,
+                        b.publication_date AS publicationDate,
+                        b.online_availability AS onlineAvailability,
+                        STRING_AGG(a.first_name||' '||a.last_name, ',') AS concatAuthors
+                FROM book_authors AS ba
+                    INNER JOIN books AS b ON(ba.book_id = b.id)
+                    INNER JOIN authors AS a ON(ba.author_id = a.id)
+                WHERE b.id = :bookId
+                GROUP BY b.id, b.title, b.publication_date, b.online_availability
+                """;
+
+        return databaseClient.sql(sql)
+                .bind("bookId", bookId)
+                .map((row, metadata) -> {
+                    log.info("Metadata de publicationDate: {} ", metadata.getColumnMetadata("publicationDate"));
+
+                    return (IBookProjection) BookVO.builder()
+                            .id(row.get("id", Integer.class))
+                            .title(row.get("title", String.class))
+                            .publicationDate(row.get("publicationDate", LocalDate.class))
+                            .onlineAvailability(row.get("onlineAvailability", Boolean.class))
+                            .concatAuthors(row.get("concatAuthors", String.class))
+                            .build();
+                })
+                .first();
+    }
+
+    @Override
+    public Mono<Void> deleteBookAuthorByBookId(Integer bookId) {
+        String sql = """			
+                DELETE FROM book_authors AS ba
+                WHERE ba.book_id = :bookId
+                """;
+
+        return databaseClient.sql(sql)
+                .bind("bookId", bookId)
+                .fetch()
+                .rowsUpdated()
+                .then()
+                .onErrorMap(t -> {
+                    log.error(t.getMessage());
+                    return new ApiException("Error in delete book_authors, bookId " + bookId, HttpStatus.NOT_FOUND);
+
+                });
+    }
+
+    @Override
+    public Mono<Void> deleteBookAuthorByAuthorId(Integer authorId) {
+        String sql = """			
+                DELETE FROM book_authors AS ba
+                WHERE ba.author_id = :authorId
+                """;
+
+        return this.databaseClient.sql(sql)
+                .bind("authorId", authorId)
+                .fetch()
+                .rowsUpdated()
+                .then()
+                .onErrorMap(t -> {
+                    log.error("Ocurrió un error: " + t.getMessage());
+                    return new ApiException("Error in delete book_authors, authorId " + authorId, HttpStatus.NOT_FOUND);
+                });
+    }
+
+    @Override
+    public Flux<IBookProjection> findAllToPage(BookCriteria bookCriteria, Pageable pageable) {
+        String select = """				
+                SELECT b.id as bookId, b.title as title, b.publication_date as publicationDate, b.online_availability as onlineAvailability,
+                      STRING_AGG(a.first_name||' '||a.last_name, ', ') as concatAuthors
+                """;
+
+        String from = """		
+                FROM book_authors ba
+                    INNER JOIN books b ON ba.book_id = b.id
+                    INNER JOIN authors a ON ba.author_id = a.id
+                """;
+
+        String where = "";
+
+        StringBuilder sqlWhere = new StringBuilder();
+        boolean flag = false;
+
+        if (StringUtils.hasText(bookCriteria.q())) {
+
+            if (flag) {
+                sqlWhere.append("OR ");
+            }
+
+            sqlWhere.append("b.title LIKE :q ");
+            flag = true;
+        }
+
+        if (bookCriteria.publicationDate() != null) {
+
+            if (flag) {
+                sqlWhere.append("OR ");
+            }
+
+            sqlWhere.append("b.publicationDate = :publicationDate ");
+            flag = true;
+        }
+
+        if (flag) {
+            where = sqlWhere.insert(0, "WHERE ").toString();
+        }
+
+        String limit = """
+                GROUP BY b.id
+                ORDER BY b.id ASC
+                LIMIT :pageSize OFFSET :offset
+                """;
+
+        String sql = select + from + where + limit;
+        log.info(sql);
+
+        DatabaseClient.GenericExecuteSpec ges = databaseClient.sql(sql);
+
+        if (StringUtils.hasText(bookCriteria.q())) {
+            ges = ges.bind("q", "%" + bookCriteria.q() + "%");
+        }
+
+        if (bookCriteria.publicationDate() != null) {
+            ges = ges.bind("publicationDate", bookCriteria.publicationDate());
+        }
+
+        return ges.bind("pageSize", pageable.getPageSize())
+                .bind("offset", pageable.getOffset())
+                .map((row, metadata) -> {
+                    log.info("publicationDate {} ", metadata.getColumnMetadata("publicationDate"));
+                    log.info("bookId {} ", metadata.getColumnMetadata("bookId").toString());
+
+                    return (IBookProjection) BookVO.builder()
+                            .id(row.get("bookId", Integer.class))
+                            .title(row.get("title", String.class))
+                            .publicationDate(row.get("publicationDate", LocalDate.class))
+                            .onlineAvailability(row.get("onlineAvailability", Boolean.class))
+                            .concatAuthors(row.get("concatAuthors", String.class))
+                            .build();
+                })
+                .all();
+    }
+}
+````
+
+Del código anterior, analicemos el método `saveAllBookAuthor()`:
+
+````java
+
+@Override
+public Mono<Void> saveAllBookAuthor(List<BookAuthor> bookAuthorList) {
+    List<Mono<Long>> inserts = bookAuthorList.stream()
+            .map(bookAuthorToSave -> this.databaseClient.sql("""
+                            INSERT INTO book_authors(book_id, author_id)
+                            VALUES(:bookId, :authorId)
+                            """)
+                    .bind("bookId", bookAuthorToSave.getBookId())
+                    .bind("authorId", bookAuthorToSave.getAuthorId())
+                    .fetch()
+                    .rowsUpdated()
+                    .onErrorMap(error -> new ApiException(error.getMessage(), HttpStatus.BAD_REQUEST))
+            )
+            .toList();
+
+    Flux<Long> concat = Flux.concat(inserts);
+    return concat.then();
+}
+````
+
+**Donde**
+
+- `Flux.concat(inserts)` toma una lista de `Mono<Long>` (en este caso, cada `Mono` representa una operación de inserción
+  en la base de datos) y los concatena en un solo `Flux<Long>`.
+
+
+- Esto significa que los `Mono<Long>` se ejecutarán uno tras otro en orden secuencial. El segundo `Mono` no comenzará a
+  ejecutarse hasta que el primero haya completado su operación.
+
+
+- A medida que cada `Mono<Long>` se completa (ya sea emitiendo un valor o un error), el `Flux` resultante emitirá esos
+  valores. Sin embargo, en este caso, estás utilizando `then()` al final, por lo que no te interesa el resultado de los
+  Long emitidos (el número de filas actualizadas), sino que deseas que el flujo termine correctamente.
+
+
+- Si alguno de los `Mono<Long>` en la lista falla (es decir, si alguna inserción provoca un error), el `Flux` emitirá un
+  error, y el flujo se detendrá. Esto es útil para manejar errores de manera centralizada: si hay un error en cualquiera
+  de las inserciones, toda la operación de inserción se considera fallida.
+
+
+- `Flux.concat()` es útil, ya que fuerza la suscripción y ejecución de cada `Mono` secuencialmente.
+
+En resumen, `Flux.concat(inserts)` se utiliza aquí para gestionar las inserciones en orden y de forma secuencial,
+mientras que la estructura reactiva permite manejar errores y completar la operación de manera eficiente.
+
+A continuación se muestra la implementación del servicio `BookServiceImpl`.
 
 ````java
 
@@ -747,70 +1257,148 @@ en el tutorial original no está implementado:
 public class BookServiceImpl implements IBookService {
 
     private final IBookRepository bookRepository;
+    private final IAuthorRepository authorRepository;
+    private final IBookAuthorDao bookAuthorDao;
+    private final BookMapper bookMapper;
+
+    @Override
+    @Transactional(readOnly = true)
+    public Mono<Page<IBookProjection>> findAllToPage(BookCriteria bookCriteria, Pageable pageable) {
+        Mono<Long> countBookAuthorByCriteria = this.bookAuthorDao.findCountBookAuthorByCriteria(bookCriteria);
+        return this.bookAuthorDao.findAllToPage(bookCriteria, pageable)
+                .collectList()
+                .switchIfEmpty(Mono.error(new ApiException("Not result", HttpStatus.NO_CONTENT)))
+                .zipWith(countBookAuthorByCriteria, (iBookProjections, total) -> new PageImpl<>(iBookProjections, pageable, total));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Mono<IBookProjection> findBookById(Integer bookId) {
+        return this.bookAuthorDao.findAllBookAuthorByBookId(bookId)
+                .switchIfEmpty(Mono.error(new ApiException("No hay resultados con bookId: %d".formatted(bookId), HttpStatus.NOT_FOUND)));
+    }
+
+    @Override
+    @Transactional
+    public Mono<Integer> saveBook(RegisterBookDTO registerBookDTO) {
+        Mono<Book> bookMonoToSave = this.bookMapper.toBook(registerBookDTO);
+        Mono<Book> bookMonoDB = bookMonoToSave.flatMap(this.bookRepository::save);
+
+        return this.authorRepository.findAllAuthorsByIdIn(registerBookDTO.getAuthors())
+                .collectList()
+                .flatMap(authors -> {
+                    if (authors.size() != registerBookDTO.getAuthors().size()) {
+                        return Mono.error(new ApiException("Algunos autores no existen en la BD", HttpStatus.BAD_REQUEST));
+                    }
+                    return Mono.just(authors);
+                }).zipWith(bookMonoDB, (authors, bookDB) -> {
+                    List<BookAuthor> bookAuthorList = this.bookMapper.toBookAuthorList(authors, bookDB.getId());
+                    return this.bookAuthorDao.saveAllBookAuthor(bookAuthorList).then(Mono.just(bookDB.getId()));
+                })
+                .flatMap(bookIdMono -> bookIdMono);
+    }
+
+    @Override
+    @Transactional
+    public Mono<Boolean> deleteBook(Integer bookId) {
+        return this.bookRepository.findById(bookId)
+                .flatMap(bookDB -> this.bookAuthorDao.existBookAuthorByBookId(bookId))
+                .flatMap(existsBookAuthor -> {
+                    log.info("Existe el libro en la tabla book_authors?: {}", existsBookAuthor);
+                    if (existsBookAuthor) {
+                        return this.bookAuthorDao.deleteBookAuthorByBookId(bookId).then(Mono.just(true));
+                    }
+                    return Mono.just(true);
+                })
+                .flatMap(canContinue -> this.bookRepository.deleteById(bookId).then(Mono.just(true)))
+                .switchIfEmpty(Mono.error(new ApiException("No se encontró el libro con id %s para eliminar".formatted(bookId), HttpStatus.NOT_FOUND)));
+    }
+}
+````
+
+Observemos que la clase de servicio anterior utiliza un `BookMapper`, así que es lo que se muestra a continuación:
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@Component
+public class BookMapper {
+
     private final ModelMapper modelMapper;
 
-    @Override
-    public Mono<Page<IBookProjection>> findAllToPage(BookCriteria bookCriteria, Pageable pageable) {
-        /*
-        return bookRepository.findAllToPage(bookCriteria,pageable)
-        		.collectList()
-        		.switchIfEmpty(Mono.error(new ApiException("Not result", HttpStatus.NO_CONTENT)))
-        		.zipWith(bookRepository.findCountBookAuthorByCriteria(bookCriteria))
-        		.map(result -> new PageImpl<>(result.getT1(), pageable, result.getT2()));
-         */
-        return null;
+    public Mono<Book> toBook(RegisterBookDTO dto) {
+        try {
+            Book book = modelMapper.map(dto, Book.class);
+            return Mono.just(book);
+        } catch (Exception e) {
+            log.error("Error en mapeo para registrar book:: {}", e.getMessage());
+            return Mono.error(new ApiException("Error al mapear entidad Author", HttpStatus.BAD_REQUEST));
+        }
     }
 
-    @Override
-    public Mono<IBookProjection> findBookById(Integer bookId) {
-        //return bookRepository.findByBookId(bookId);
-        return null;
+    public List<BookAuthor> toBookAuthorList(List<Author> authors, Integer bookId) {
+        return authors.stream()
+                .map(author -> BookAuthor
+                        .builder()
+                        .bookId(bookId)
+                        .authorId(author.getId())
+                        .build()
+                )
+                .toList();
+    }
+}
+````
+
+## Creando el controller del Book
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/books")
+public class BookRestController {
+
+    private final IBookService bookService;
+
+    @GetMapping(path = "/pages")
+    public Mono<ResponseEntity<Page<IBookProjection>>> findAllPage(@RequestParam(name = "q", defaultValue = "", required = false) String q,
+                                                                   @RequestParam(name = "page", defaultValue = "0", required = false) int page,
+                                                                   @RequestParam(name = "size", defaultValue = "5", required = false) int size,
+                                                                   @RequestParam(name = "sortBy", defaultValue = "bookId", required = false) String sortBy,
+                                                                   @RequestParam(name = "sortDirection", defaultValue = "asc", required = false) String sortDirection,
+                                                                   @DateTimeFormat(pattern = "dd/MM/yyyy") LocalDate publicationDate) {
+
+        String[] sortArray = sortBy.contains(",") ?
+                Arrays.stream(sortBy.split(",")).map(String::trim).toArray(String[]::new) :
+                new String[]{sortBy.trim()};
+
+        Sort sort = Sort.by(Sort.Direction.fromString(sortDirection), sortArray);
+        Pageable pageable = PageRequest.of(page, size, sort);
+        BookCriteria bookCriteria = new BookCriteria(q, publicationDate);
+
+        return this.bookService.findAllToPage(bookCriteria, pageable)
+                .flatMap(bookProjections -> Mono.just(ResponseEntity.ok(bookProjections)));
     }
 
-    @Override
-    public Mono<Void> saveBook(RegisterBookDTO registerBookDTO) {
-        /*
-        Book book = null;
-
-		try {
-			book = modelMapper.map(registerBookDto, Book.class);
-		} catch (Exception e) {
-			log.error(e.getMessage());
-			return Mono.error(new ApiException("Error in Detail", HttpStatus.NOT_FOUND));
-		}
-
-		return bookRepository.save(book).flatMap(bookEntity -> {
-			List<BookAuthor> bookAuthors = registerBookDto.getAuthors().stream().map(authorId -> {
-
-				return BookAuthor.builder()
-						.authorId(authorId)
-						.bookId(bookEntity.getBookId())
-						.build();
-
-			}).collect(Collectors.toList());
-			return bookRepository.saveAllBookAuthor(bookAuthors).collectList().then();
-		});
-         */
-        return null;
+    @GetMapping(path = "/{bookId}")
+    public Mono<ResponseEntity<IBookProjection>> getBook(@PathVariable Integer bookId) {
+        return this.bookService.findBookById(bookId)
+                .flatMap(bookProjection -> Mono.just(ResponseEntity.ok(bookProjection)));
     }
 
-    @Override
-    public Mono<Void> deleteBook(Integer bookId) {
-        /*
-        return bookRepository.existBookAuthorByBookId(bookId)
-		.flatMap(existBookAuthor -> {
+    @PostMapping
+    public Mono<ResponseEntity<Void>> registerBook(@RequestBody RegisterBookDTO registerBookDTO) {
+        return this.bookService.saveBook(registerBookDTO)
+                .doOnNext(bookId -> log.info("bookId: {}", bookId))
+                .flatMap(bookId -> Mono.just(new ResponseEntity<>(HttpStatus.CREATED)));
+    }
 
-			if(!existBookAuthor) {
-
-				return bookRepository.deleteById(bookId);
-			}
-
-			return bookRepository.deleteBookAuthorByBookId(bookId)
-					.then( bookRepository.deleteById(bookId));
-
-		});
-         */
-        return null;
+    @DeleteMapping(path = "/{bookId}")
+    public Mono<ResponseEntity<Void>> deleteBook(@PathVariable Integer bookId) {
+        return this.bookService.deleteBook(bookId)
+                .map(wasDeleted -> ResponseEntity.noContent().build());
     }
 }
 ````
@@ -821,6 +1409,7 @@ Crearemos el `value object (VO)` que agrupará las características de un `Book`
 de proyección `IBookProjection`:
 
 ````java
+
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
@@ -856,6 +1445,70 @@ public class BookVO implements IBookProjection {
     @Override
     public String getConcatAuthors() {
         return this.concatAuthors;
+    }
+}
+````
+
+## Crea controlador de Author
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/authors")
+public class AuthorRestController {
+
+    private final IAuthorService authorService;
+
+    @GetMapping
+    public Mono<ResponseEntity<Flux<Author>>> findAllAuthors(AuthorCriteria authorCriteria) {
+        Flux<Author> authorFlux = this.authorService.findAll(authorCriteria);
+        return authorFlux
+                .hasElements()
+                .flatMap(hasElements -> {
+                    if (hasElements) {
+                        return Mono.just(ResponseEntity.ok(authorFlux));
+                    }
+                    return Mono.just(ResponseEntity.noContent().build());
+                });
+    }
+
+    @GetMapping(path = "/pages")
+    public Mono<ResponseEntity<Page<IAuthorProjection>>> findAllPage(@RequestParam(name = "query", defaultValue = "", required = false) String query,
+                                                                     @RequestParam(name = "page", defaultValue = "0", required = false) int pageNumber,
+                                                                     @RequestParam(name = "size", defaultValue = "5", required = false) int pageSize) {
+        return this.authorService.findAllToPage(query, pageNumber, pageSize)
+                .map(ResponseEntity::ok);
+    }
+
+    @GetMapping(path = "/{authorId}")
+    public Mono<ResponseEntity<IAuthorProjection>> getAuthor(@PathVariable Integer authorId) throws ApiException {
+        return this.authorService.findAuthorById(authorId)
+                .flatMap(authorProjection -> Mono.just(ResponseEntity.ok(authorProjection)));
+    }
+
+    @PostMapping
+    public Mono<ResponseEntity<Void>> registerAuthor(@RequestBody RegisterAuthorDTO registerAuthorDTO) throws ApiException {
+        return this.authorService.saveAuthor(registerAuthorDTO)
+                .flatMap(affectedRows -> Mono.just(new ResponseEntity<>(HttpStatus.CREATED)));
+    }
+
+    @PutMapping(path = "/{authorId}")
+    public Mono<ResponseEntity<ResponseMessage<IAuthorProjection>>> updateAuthor(@PathVariable Integer authorId,
+                                                                                 @RequestBody UpdateAuthorDTO updateAuthorDTO) throws ApiException {
+        return this.authorService.updateAuthor(authorId, updateAuthorDTO)
+                .flatMap(authorProjection -> Mono.just(ResponseMessage.<IAuthorProjection>builder()
+                        .message("Registro modificado")
+                        .content(authorProjection)
+                        .build())
+                )
+                .flatMap(msg -> Mono.just(new ResponseEntity<>(msg, HttpStatus.OK)));
+    }
+
+    @DeleteMapping(path = "/{authorId}")
+    public Mono<ResponseEntity<Void>> deleteAuthor(@PathVariable Integer authorId) throws ApiException {
+        return this.authorService.deleteAuthor(authorId)
+                .map(wasDeleted -> ResponseEntity.noContent().build());
     }
 }
 ````
