@@ -12,9 +12,9 @@ import java.util.List;
 public interface IBookAuthorDao {
     Mono<Long> findCountBookAuthorByCriteria(BookCriteria bookCriteria);
 
-    Mono<Void> saveBookAuthor(BookAuthor bookAuthor);
+    Mono<Long> saveBookAuthor(BookAuthor bookAuthor);
 
-    Flux<Void> saveAllBookAuthor(List<BookAuthor> bookAuthor);
+    Mono<Void> saveAllBookAuthor(List<BookAuthor> bookAuthor);
 
     Mono<IBookProjection> findByBookId(Integer bookId);
 
@@ -22,7 +22,7 @@ public interface IBookAuthorDao {
 
     Mono<Boolean> existBookAuthorByAuthorId(Integer authorId);
 
-    Flux<IBookProjection> findAllBookAuthorByBookId(Integer bookId);
+    Mono<IBookProjection> findAllBookAuthorByBookId(Integer bookId);
 
     Mono<Void> deleteBookAuthorByBookId(Integer bookId);
 

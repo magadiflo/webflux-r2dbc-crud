@@ -25,6 +25,6 @@ public interface IBookProjection {
         if (getConcatAuthors() == null || getConcatAuthors().isEmpty()) {
             return new ArrayList<>();
         }
-        return Arrays.asList(getConcatAuthors().split(", "));
+        return Arrays.asList(getConcatAuthors().split(","));
     }
 }
