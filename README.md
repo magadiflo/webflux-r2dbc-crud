@@ -151,3 +151,43 @@ Dado el enfoque en rendimiento, claridad y mantenimiento en sistemas reactivamen
 mejor con el estilo y los objetivos. Además, al generar código explícito, facilita la documentación y el control del
 flujo de datos.
 
+## Creando base de datos
+
+Creamos la base de datos `db_webflux_r2dbc` cuyo usuario es `postgres` y la contraseña es `magadiflo`.
+
+![01.png](assets/01.png)
+
+## Configurando base de datos
+
+En el `application.yml` agregamos las siguientes configuraciones.
+
+````yml
+server:
+  port: 8080
+  error:
+    include-message: always
+
+spring:
+  application:
+    name: webflux-r2dbc-crud
+  r2dbc:
+    url: r2dbc:postgresql://localhost:5432/db_webflux_r2dbc
+    username: postgres
+    password: magadiflo
+
+logging:
+  level:
+    io.r2dbc.postgresql.QUERY: DEBUG
+    io.r2dbc.postgresql.PARAM: DEBUG
+````
+
+La URL de conexión está configurada en `r2dbc:postgresql://localhost:5432/db_webflux_r2dbc`, donde:
+
+- `r2dbc`, indicamos que usaremos `r2dbc` para conectarnos a la base de datos. Recordar que cuando usamos una
+  aplicación tradicional como `Spring Boot MVC` (no reactiva) usamos `jdbc`.
+- `db_webflux_r2dbc`, es el nombre de la base de datos.
+- `5432`, es el puerto por defecto `PostgreSQL`.
+
+Las propiedades `spring.r2dbc.username` y `spring.r2dbc.password` proporcionan las credenciales para conectarse a
+la base de datos.
+
