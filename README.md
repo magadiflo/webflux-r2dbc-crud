@@ -174,11 +174,6 @@ spring:
     url: r2dbc:postgresql://localhost:5432/db_webflux_r2dbc
     username: postgres
     password: magadiflo
-
-logging:
-  level:
-    io.r2dbc.postgresql.QUERY: DEBUG
-    io.r2dbc.postgresql.PARAM: DEBUG
 ````
 
 La URL de conexión está configurada en `r2dbc:postgresql://localhost:5432/db_webflux_r2dbc`, donde:
@@ -191,3 +186,14 @@ La URL de conexión está configurada en `r2dbc:postgresql://localhost:5432/db_w
 Las propiedades `spring.r2dbc.username` y `spring.r2dbc.password` proporcionan las credenciales para conectarse a
 la base de datos.
 
+## Habilitando logging para ver los queries y parameters en las consultas a PostgreSQL
+
+En el `application.yml` agregamos las siguientes configuraciones para poder observar qué instrucciones sql se están
+ejecutando y qué parámetros se están enviando.
+
+````yml
+logging:
+  level:
+    io.r2dbc.postgresql.QUERY: DEBUG
+    io.r2dbc.postgresql.PARAM: DEBUG
+````
