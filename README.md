@@ -197,3 +197,72 @@ logging:
     io.r2dbc.postgresql.QUERY: DEBUG
     io.r2dbc.postgresql.PARAM: DEBUG
 ````
+
+## Creando el esquema y datos de nuestra base de datos
+
+Creamos el siguiente directorio `src/main/resources/sql` en nuestro proyecto. Aquí creamos el archivo `scheme.sql`
+donde definimos las tablas `authors`, `books` y su relación de muchos a muchos `book_authors`.
+
+Definimos las instrucciones `DROP TABLE...` al inicio de este script para que la aplicación inicie limpia y siempre
+con los datos iniciales del archivo `data.sql` que crearemos más adelante.
+
+````sql
+DROP TABLE IF EXISTS book_authors;
+DROP TABLE IF EXISTS authors;
+DROP TABLE IF EXISTS books;
+
+CREATE TABLE authors(
+    id SERIAL,
+    first_name VARCHAR(45) NOT NULL,
+    last_name VARCHAR(45) NOT NULL,
+    birthdate DATE NOT NULL,
+    CONSTRAINT pk_authors PRIMARY KEY(id)
+);
+
+CREATE TABLE books(
+    id SERIAL,
+    title VARCHAR(255) NOT NULL,
+    publication_date DATE NOT NULL,
+    online_availability BOOLEAN DEFAULT FALSE,
+    CONSTRAINT pk_books PRIMARY KEY(id)
+);
+
+CREATE TABLE book_authors(
+    book_id INTEGER NOT NULL,
+    author_id INTEGER NOT NULL,
+    CONSTRAINT fk_books_book_authors FOREIGN KEY(book_id) REFERENCES books(id),
+    CONSTRAINT fk_authors_book_authors FOREIGN KEY(author_id) REFERENCES authors(id),
+);
+````
+
+Creamos el script `data.sql` en el mismo directorio que el `scheme.sql`. En este script `data.sql` vamos a definir
+los valores iniciales con las que iniciará nuestra aplicación cada vez que sea ejecutada.
+
+````sql
+INSERT INTO authors(first_name, last_name, birthdate)
+VALUES
+('Milagros', 'Díaz', '2006-06-15'),
+('Lesly', 'Águila', '1995-06-09'),
+('Kiara', 'Lozano', '2001-10-03'),
+('Briela', 'Cirilo', '1997-09-25');
+
+INSERT INTO books(title, publication_date, online_availability)
+VALUES
+('Cien años de soledad', '1999-01-15', true),
+('Paco Yunque', '1985-03-18', true),
+('Los perros hambrientos', '2002-05-06', false),
+('Edipo Rey', '1988-07-15', true);
+
+-- Book 1: tiene como author a Milagros y Lesly
+INSERT INTO book_authors(book_id, author_id)
+VALUES
+(1, 1),
+(1, 2);
+
+-- Book 2: tiene como author a Kiara
+INSERT INTO book_authors(book_id, author_id)
+VALUES
+(2, 3);
+````
+
+
