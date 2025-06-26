@@ -462,3 +462,280 @@ limitaciones actuales de `R2DBC`.
 > Este caso lo podemos ver en el proyecto
 > [webFlux-masterclass-microservices](https://github.com/magadiflo/webFlux-masterclass-microservices/tree/main/projects/webflux-playground/src/main/java/dev/magadiflo/app/sec03/entity)
 
+## Creando repositorios
+
+A nuestras entidades `Author` y `Book` les crearemos a cada uno su interfaz de repositorio. Estos repositorios nos
+permitirán interactuar con las tablas de la base de datos `authors` y `books`. Con respecto a la entidad `BookAuthor`,
+esta la manejaremos dentro de una clase `dao` haciendo uso del `DatabaseClient`.
+
+La interfaz `ReactiveCrudRepository` nos permitirá usar sus métodos ya definidos, tales como el `save()`, `findById()`,
+`findAll()`, `count()`, `delete()`, `deleteById()`, `deleteAll()`, etc.`
+
+A continuación se muestra la creación del repositorio `BookRepository` para la entidad `Book`.
+
+````java
+public interface BookRepository extends ReactiveCrudRepository<Book, Integer> {
+}
+````
+
+Antes de crear el repositorio `AuthorRepository` vamos a crear una proyección basada en interfaz que luego la usaremos
+en algunos métodos del repositorio.
+
+````java
+public interface AuthorProjection {
+    String getFirstName();
+
+    String getLastName();
+
+    LocalDate getBirthdate();
+
+    default String getFullName() {
+        if (Objects.isNull(getFirstName()) || Objects.isNull(getLastName())) {
+            return "";
+        }
+        return "%s %s".formatted(getFirstName(), getLastName());
+    }
+}
+````
+
+> Más adelante explicamos en detalle qué es esto de las proyecciones.
+
+Ahora, mostramos la creación del repositorio `AuthorRepository` para la entidad `Author`. Algo que vamos a hacer en
+este repositorio es que a pesar de que el `ReactiveCrudRepository` ya viene con métodos predefinidos como el
+`save()`, `findBYId()`, etc. en nuestro caso vamos a definir nuestros propios métodos para practicar un poco.
+
+````java
+public interface AuthorRepository extends ReactiveCrudRepository<Author, Integer> {
+    /**
+     * @param author entity
+     * @return affectedRows
+     */
+    @Modifying
+    @Query(value = """
+            INSERT INTO authors(first_name, last_name, birthdate)
+            VALUES(:#{#author.firstName}, :#{#author.lastName}, :#{#author.birthdate})
+            """)
+    Mono<Integer> saveAuthor(@Param("author") Author author);
+
+    /**
+     * @param author entity
+     * @return affectedRows
+     */
+    @Modifying
+    @Query(value = """
+            UPDATE authors
+            SET first_name = :#{#author.firstName},
+                last_name = :#{#author.lastName},
+                birthdate = :#{#author.birthdate}
+            WHERE id = :#{#author.id}
+            """)
+    Mono<Integer> updateAuthor(Author author);
+
+    @Query("""
+            SELECT a.id, a.first_name, a.last_name, a.birthdate
+            FROM authors AS a
+            WHERE a.id IN(:authorIds)
+            """)
+    Flux<Author> findAllAuthorsByIdIn(List<Integer> authorIds);
+
+    @Query("""
+            SELECT COUNT(a.id)
+            FROM authors AS a
+            WHERE a.first_name LIKE :#{'%' + #query + '%'}
+                OR a.last_name LIKE :#{'%' + #query + '%'}
+            """)
+    Mono<Integer> findCountByQuery(String query);
+
+    @Query("""
+            SELECT a.id, a.first_name, a.last_name, a.birthdate
+            FROM authors AS a
+            WHERE a.id = :authorId
+            """)
+    Mono<AuthorProjection> findAuthorById(Integer authorId);
+
+    @Query("""
+            SELECT a.id, a.first_name, a.last_name, a.birthdate
+            FROM authors AS a
+            WHERE a.first_name LIKE :#{'%' + #query + '%'}
+                OR a.last_name LIKE :#{'%' + #query + '%'}
+            ORDER BY a.id ASC
+            LIMIT :#{#pageable.getPageSize()}
+            OFFSET :#{#pageable.getOffset()}
+            """)
+    Flux<AuthorProjection> findByQuery(String query, Pageable pageable);
+}
+````
+
+En el repositorio `AuthorRepository` hemos definido métodos personalizados, donde:
+
+- Usamos la anotación `@Query()` para definir nuestra consulta.
+
+
+- La consulta usada en la anotación `@Query()` es `SQL nativo`, ya que estamos trabajando con `Spring Data R2DBC`
+  y no con `Spring Data JPA`. Aunque dicho sea de paso, con `Spring Data JPA` también se puede trabajar con `SQL nativo`
+  solo que en ese caso es necesario agregar el atributo `nativeQuery` en la anotación de la siguiente manera
+  `@Query(value = "TU_CONSULTA_SQL_CON_JPA", nativeQuery = true)`, mientras que con `Spring Data R2DBC` usamos
+  directamente `SQL nativo` en la anotación `@Query`.
+
+
+- La anotación `@Modifying` indica que un método de consulta debe considerarse una consulta de modificación que puede
+  devolver:
+    - `Void` para descartar el recuento de actualizaciones y esperar a que se complete.
+    - `Integer` u otro tipo numérico que emite el recuento de filas afectadas.
+    - `Boolean` para indicar si se actualizó al menos una fila.
+
+  Los métodos de consulta anotados con `@Modifying` suelen ser instrucciones `INSERT, UPDATE, DELETE y DDL` que no
+  devuelven resultados tabulares.
+
+
+- Normalmente, cuando definimos parámetros a nuestros métodos de repositorio, si son pocos parámetros podemos definirlos
+  uno a uno, pero si son muchos parámetros, podemos pasarle directamente un objeto que tendrá las propiedades que
+  usaremos en la consulta. En nuestro caso, observemos la firma de nuestro método `saveAuthor()`
+  `Mono<Integer> saveAuthor(@Param("author") Author author)`, le estamos pasando la clase `Author`.
+
+
+- Para usar las propiedades del objeto pasado por parámetro dentro de la consulta SQL usamos `SpEL`, por ejemplo:
+  `:#{#author.firstName}`, donde `author` es el parámetro definido en el método y `firstName` es la propiedad del
+  objeto. Esta sintaxis se utiliza para acceder a expresiones `SpEL (Spring Expression Language)`. Permite referenciar
+  propiedades y métodos de objetos directamente en la consulta.
+
+
+- El prefijo `#{}` indica que se está utilizando `SpEL`, y el símbolo `#` se utiliza para acceder a los parámetros del
+  método o a las propiedades del objeto. Por ejemplo. `:#{#pageable.getPageSize()}` accede al método `getPageSize()` del
+  objeto `Pageable` pasado como parámetro.
+
+Veamos un poco más a detalle la siguiente consulta que hemos creado anteriormente.
+
+````java
+
+@Query("""
+        SELECT a.first_name, a.last_name, a.birthdate
+        FROM authors AS a
+        WHERE a.first_name LIKE :#{'%' + #query + '%'}
+            OR a.last_name LIKE :#{'%' + #query + '%'}
+        ORDER BY a.id ASC
+        LIMIT :#{#pageable.getPageSize()}
+        OFFSET :#{#pageable.getOffset()}
+        """)
+Flux<AuthorProjection> findByQuery(String query, Pageable pageable);
+````
+
+Estamos pasando por parámetro un `String query` y un `Pageable pageable`. Centrémonos en el objeto `pageable`. Estamos
+agregando este objeto `pageable` por parámetro con la única finalidad de poder usar los valores internos que nos
+proporcione su implementación. En otras palabras, lo que pasamos por parámetro al método `findByQuery(...)` es la
+variable `query` y la implementación de la interfaz `Pageable`. Esta implementación la podemos obtener de un
+`PageRequest.of(pageNumber, pageSize)`. Internamente, la implementación hace ciertas operaciones, las mismas que
+podemos obtenerlas, por ejemplo con el `getOffset()` que es la multiplicación del `pageNumber * pageSize`.
+
+Por otro lado, algo importante que se debe resaltar en las consultas personalizadas del repositorio anterior es que en
+los métodos `findAuthorById` y `findByQuery` estamos usando el concepto de `Projections` (a modo de ejemplo), con
+`projections` podemos recuperar del total de columnas que tenga una tabla, solo las columnas que queramos. Por ejemplo,
+si nuestra tabla tuviera 50 columnas, con projections podemos recuperar solo 5 columnas, no todas, sino las que son
+realmente necesarias.
+
+A continuación, veamos el tema más detalladamente:
+
+### [Projections](https://docs.spring.io/spring-data/jpa/reference/repositories/projections.html)
+
+Los métodos de consulta de Spring Data generalmente devuelven una o varias instancias de la raíz agregada administrada
+por el repositorio. Sin embargo, a veces puede resultar conveniente crear proyecciones basadas en ciertos atributos de
+esos tipos. `Spring Data` permite modelar tipos de retorno dedicados para recuperar de manera más selectiva vistas
+parciales de los agregados administrados.
+
+> Supongamos que tenemos una entidad con múchos atributos, unas 100 por ejemplo (por exagerar). Ahora, imagine que
+> queremos recuperar únicamente 3 atributos ¿cómo lo haríamos?
+
+### Proyecciones basadas en interfaz
+
+La forma más sencilla de limitar el resultado de las consultas solo a los atributos seleccionados es declarando una
+interfaz que exponga los métodos de acceso para que se lean las propiedades, como se muestra en el siguiente ejemplo:
+
+Supongamos que tenemos el siguiente repositorio y su aggregate root:
+
+````java
+class Person {
+    @Id
+    UUID id;
+    String firstname;
+    String lastname;
+    Address address;
+
+    static class Address {
+        String zipCode, city, street;
+    }
+}
+
+interface PersonRepository extends Repository<Person, UUID> {
+    Collection<Person> findByLastname(String lastname);
+}
+````
+
+Ahora, usando **proyecciones basadas en interfaz** definimos únicamente los atributos que queremos recuperar, por
+ejemplo, recuperar únicamente los atributos del nombre de la persona:
+
+````java
+interface NamesOnly {
+    String getFirstname();
+
+    String getLastname();
+}
+````
+
+Lo importante aquí es que las propiedades definidas aquí coinciden exactamente con las propiedades del aggregate root.
+Al hacerlo, se puede agregar un método de consulta de la siguiente manera:
+
+````java
+// Un repositorio que utiliza una proyección basada en interfaz con un método de consulta
+interface PersonRepository extends Repository<Person, UUID> {
+    Collection<NamesOnly> findByLastname(String lastname);
+}
+````
+
+#### Proyecciones cerradas
+
+Una interfaz de proyección cuyos métodos de acceso coinciden con las propiedades del agregado de destino se considera
+una proyección cerrada. El siguiente ejemplo (que también utilizamos anteriormente en este capítulo) es una proyección
+cerrada.
+
+````java
+interface NamesOnly {
+    String getFirstname();
+
+    String getLastname();
+}
+````
+
+#### Proyecciones abiertas
+
+Los métodos de acceso en las interfaces de proyección también se pueden utilizar para calcular nuevos valores mediante
+la anotación @Value, como se muestra en el siguiente ejemplo:
+
+````java
+interface NamesOnly {
+    @Value("#{target.firstname + ' ' + target.lastname}")
+    String getFullName();
+    /*...*/
+}
+````
+
+La raíz agregada que respalda la proyección está disponible en la variable objetivo. Una interfaz de proyección que
+utiliza `@Value` es una `proyección abierta`. Spring Data no puede aplicar optimizaciones de ejecución de consultas en
+este caso, porque la expresión `SpEL` podría usar cualquier atributo de la raíz agregada.
+
+Las expresiones utilizadas en `@Value` no deben ser demasiado complejas; debe evitar la programación en variables de
+cadena. Para expresiones muy simples, una opción podría ser recurrir a métodos predeterminados (introducidos en Java 8),
+como se muestra en el siguiente ejemplo:
+
+````java
+// Una interfaz de proyección que utiliza un método predeterminado para lógica personalizada
+interface NamesOnly {
+
+    String getFirstname();
+
+    String getLastname();
+
+    default String getFullName() {
+        return getFirstname().concat(" ").concat(getLastname());
+    }
+}
+````
