@@ -22,5 +22,6 @@ CREATE TABLE book_authors(
     book_id INTEGER NOT NULL,
     author_id INTEGER NOT NULL,
     CONSTRAINT fk_books_book_authors FOREIGN KEY(book_id) REFERENCES books(id),
-    CONSTRAINT fk_authors_book_authors FOREIGN KEY(author_id) REFERENCES authors(id)
+    CONSTRAINT fk_authors_book_authors FOREIGN KEY(author_id) REFERENCES authors(id),
+    CONSTRAINT pk_book_authors PRIMARY KEY(book_id, author_id)
 );
