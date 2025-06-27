@@ -982,3 +982,42 @@ class AuthorRepositoryTest extends AbstractTest {
     }
 }
 ````
+
+## Creando DTOS
+
+A continuación mostramos los dtos creados usando `record`. Los primeros records creados son para las
+consultas que realizaremos usando `criteria`, es decir consultas que serán elaboradas de manera dinámica.
+
+````java
+public record BookCriteria(String query, LocalDate publicationDate) {
+}
+````
+
+````java
+public record AuthorCriteria(String firstName, String lastName) {
+}
+````
+
+````java
+public record AuthorFilter(String query) {
+}
+````
+
+````java
+public record AuthorRequest(String firstName,
+                            String lastName,
+                            LocalDate birthdate) {
+}
+````
+
+````java
+public record RegisterBook(String title,
+                           LocalDate publicationDate,
+                           Boolean onlineAvailability,
+                           List<Integer> authors) {
+    public RegisterBook { // Constructor compacto
+        onlineAvailability = Boolean.TRUE.equals(onlineAvailability); // Valor por defecto false si el onlineAvailability es null
+    }
+}
+````
+
