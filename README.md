@@ -563,6 +563,10 @@ public interface AuthorRepository extends ReactiveCrudRepository<Author, Integer
             OFFSET :#{#pageable.getOffset()}
             """)
     Flux<AuthorProjection> findByQuery(String query, Pageable pageable);
+
+    @Modifying
+    @Query("DELETE FROM authors AS a WHERE a.id = :authorId")
+    Mono<Boolean> deleteAuthorById(Integer authorId);
 }
 ````
 
@@ -1018,6 +1022,26 @@ public record RegisterBook(String title,
     public RegisterBook { // Constructor compacto
         onlineAvailability = Boolean.TRUE.equals(onlineAvailability); // Valor por defecto false si el onlineAvailability es null
     }
+}
+````
+
+## Creando Servicios
+
+Definimos la interfaz para la entidad `Author`.
+
+````java
+public interface AuthorService {
+    Flux<AuthorResponse> findAllAuthors();
+
+    Mono<AuthorProjection> findAuthorById(Integer authorId);
+
+    Mono<Page<AuthorProjection>> getAllAuthorsToPage(String query, int pageNumber, int pageSize);
+
+    Mono<Integer> saveAuthor(AuthorRequest authorRequest);
+
+    Mono<AuthorProjection> updateAuthor(Integer authorId, AuthorRequest authorRequest);
+
+    Mono<Boolean> deleteAuthor(Integer authorId);
 }
 ````
 

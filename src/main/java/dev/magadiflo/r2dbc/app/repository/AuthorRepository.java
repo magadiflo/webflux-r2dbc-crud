@@ -70,4 +70,8 @@ public interface AuthorRepository extends ReactiveCrudRepository<Author, Integer
             OFFSET :#{#pageable.getOffset()}
             """)
     Flux<AuthorProjection> findByQuery(String query, Pageable pageable);
+
+    @Modifying
+    @Query("DELETE FROM authors AS a WHERE a.id = :authorId")
+    Mono<Boolean> deleteAuthorById(Integer authorId);
 }
