@@ -51,7 +51,7 @@ public interface AuthorRepository extends ReactiveCrudRepository<Author, Integer
             WHERE a.first_name LIKE :#{'%' + #query + '%'}
                 OR a.last_name LIKE :#{'%' + #query + '%'}
             """)
-    Mono<Integer> findCountByQuery(String query);
+    Mono<Long> findCountByQuery(String query);
 
     @Query("""
             SELECT a.first_name, a.last_name, a.birthdate

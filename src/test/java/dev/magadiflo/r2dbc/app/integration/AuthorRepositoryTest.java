@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.data.r2dbc.DataR2dbcTest;
 import org.springframework.data.domain.PageRequest;
 import reactor.test.StepVerifier;
 
@@ -13,6 +14,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 @Slf4j
+@DataR2dbcTest
 class AuthorRepositoryTest extends AbstractTest {
 
     @Autowired
