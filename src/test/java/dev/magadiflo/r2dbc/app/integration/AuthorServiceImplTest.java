@@ -1,5 +1,6 @@
 package dev.magadiflo.r2dbc.app.integration;
 
+import dev.magadiflo.r2dbc.app.dto.AuthorRequest;
 import dev.magadiflo.r2dbc.app.exception.AuthorNotFoundException;
 import dev.magadiflo.r2dbc.app.proyection.AuthorProjection;
 import dev.magadiflo.r2dbc.app.service.AuthorService;
@@ -106,13 +107,55 @@ class AuthorServiceImplTest extends AbstractTest {
 
     @Test
     void saveAuthor() {
+        Mono<AuthorRequest> authorRequestMono = Mono.just(new AuthorRequest("Vanesa", "Flores", LocalDate.parse("2005-05-15")));
+        this.authorService.saveAuthor(authorRequestMono)
+                .as(StepVerifier::create)
+                .assertNext(affectedRows -> Assertions.assertEquals(1, affectedRows))
+                .verifyComplete();
     }
 
     @Test
     void updateAuthor() {
+        Mono<AuthorRequest> authorRequestMono = Mono.just(new AuthorRequest("Vanesa", "Flores", LocalDate.parse("2005-05-15")));
+        this.authorService.updateAuthor(1, authorRequestMono)
+                .as(StepVerifier::create)
+                .assertNext(authorProjection -> {
+                    Assertions.assertEquals("Vanesa", authorProjection.getFirstName());
+                    Assertions.assertEquals("Flores", authorProjection.getLastName());
+                    Assertions.assertEquals("Vanesa Flores", authorProjection.getFullName());
+                    Assertions.assertEquals(LocalDate.parse("2005-05-15"), authorProjection.getBirthdate());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void throwErrorWhenUpdateAuthorWithIdThatDoesNotExist() {
+        Mono<AuthorRequest> authorRequestMono = Mono.just(new AuthorRequest("Vanesa", "Flores", LocalDate.parse("2005-05-15")));
+        this.authorService.updateAuthor(5, authorRequestMono)
+                .as(StepVerifier::create)
+                .expectErrorSatisfies(throwable -> {
+                    Assertions.assertEquals(AuthorNotFoundException.class, throwable.getClass());
+                    Assertions.assertEquals("El author [id=5] no fue encontrado", throwable.getMessage());
+                })
+                .verify();
     }
 
     @Test
     void deleteAuthor() {
+        this.authorService.deleteAuthor(4)
+                .as(StepVerifier::create)
+                .assertNext(Assertions::assertTrue)
+                .verifyComplete();
+    }
+
+    @Test
+    void throwErrorWhenDeleteAuthorWithIdThatDoesNotExist() {
+        this.authorService.deleteAuthor(5)
+                .as(StepVerifier::create)
+                .expectErrorSatisfies(throwable -> {
+                    Assertions.assertEquals(AuthorNotFoundException.class, throwable.getClass());
+                    Assertions.assertEquals("El author [id=5] no fue encontrado", throwable.getMessage());
+                })
+                .verify();
     }
 }
