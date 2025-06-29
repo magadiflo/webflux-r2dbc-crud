@@ -1045,6 +1045,240 @@ public interface AuthorService {
 }
 ````
 
-**NOTA**
-> A partir de aquí, que sería la implementación de los servicios, ya no documentaré. Para revisar la implementación
-> revisar el código fuente.
+Implementamos la clase de servicio `AuthorServiceImpl`.
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@Service
+public class AuthorServiceImpl implements AuthorService {
+
+    private final AuthorRepository authorRepository;
+    private final AuthorMapper authorMapper;
+
+    @Override
+    @Transactional(readOnly = true)
+    public Flux<AuthorResponse> findAllAuthors() {
+        return this.authorRepository.findAll()
+                .map(this.authorMapper::toAuthorResponse);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Mono<AuthorProjection> findAuthorById(Integer authorId) {
+        return this.authorRepository.findAuthorById(authorId)
+                .switchIfEmpty(ApplicationExceptions.authorNotFound(authorId));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Mono<Page<AuthorProjection>> getAllAuthorsToPage(String query, int pageNumber, int pageSize) {
+        Pageable pageable = PageRequest.of(pageNumber, pageSize);
+        return Mono.zip(
+                this.authorRepository.findByQuery(query, pageable).collectList(),
+                this.authorRepository.findCountByQuery(query),
+                (data, total) -> new PageImpl<>(data, pageable, total)
+        );
+    }
+
+    @Override
+    @Transactional
+    public Mono<Integer> saveAuthor(Mono<AuthorRequest> authorRequestMono) {
+        return authorRequestMono
+                .map(this.authorMapper::toAuthor)
+                .flatMap(this.authorRepository::saveAuthor);
+    }
+
+    @Override
+    @Transactional
+    public Mono<AuthorProjection> updateAuthor(Integer authorId, Mono<AuthorRequest> authorRequestMono) {
+        return this.authorRepository.findById(authorId)
+                .flatMap(author -> authorRequestMono)
+                .map(this.authorMapper::toAuthor)
+                .doOnNext(author -> author.setId(authorId))
+                .flatMap(this.authorRepository::updateAuthor)
+                .flatMap(affectedRows -> this.authorRepository.findAuthorById(authorId))
+                .switchIfEmpty(ApplicationExceptions.authorNotFound(authorId));
+    }
+
+    @Override
+    @Transactional
+    public Mono<Boolean> deleteAuthor(Integer authorId) {
+        return this.authorRepository.findById(authorId)
+                .flatMap(author -> this.authorRepository.deleteAuthorById(authorId))
+                .switchIfEmpty(ApplicationExceptions.authorNotFound(authorId));
+    }
+}
+````
+
+## 📄 Anotación `@Transactional` en aplicaciones reactivas con Spring WebFlux y R2DBC
+
+### 🎯 Objetivo General
+
+Verificar y documentar el uso de la anotación `@Transactional` en aplicaciones reactivas, específicamente en un
+proyecto con:
+
+- Spring WebFlux
+- Spring Data R2DBC
+- PostgreSQL
+
+Se sabe de antemano que:
+
+> ✅ La anotación `@Transactional` funciona correctamente en aplicaciones reactivas para delimitar transacciones que
+> modifican la base de datos (`INSERT`, `UPDATE`, `DELETE`).
+
+⚠️ El enfoque de estas pruebas fue comprobar específicamente que `@Transactional(readOnly = true)` efectivamente
+bloquea escrituras.
+
+Para ello se diseñaron experimentos que forzaran un `INSERT` bajo una transacción marcada como de `solo lectura`.
+
+### ⚙️ Entorno de Pruebas
+
+- Spring Boot: 3.5.3
+- Spring Data R2DBC: versión incluida en Spring Boot 3.5.3
+- Driver R2DBC: io.r2dbc:r2dbc-postgresql
+- Base de datos: PostgreSQL
+- Configuración adicional:
+    - Únicamente propiedades de conexión en application.yml
+    - Logs SQL habilitados
+    - Sin TransactionManager personalizado
+
+### 🧪 Pruebas realizadas
+
+A continuación se detallan las pruebas y resultados.
+
+### 🟢 1️⃣ Prueba `SIN` `@Transactional(readOnly = true)`
+
+📌 Código del método
+
+````java
+
+@Override
+public Flux<AuthorResponse> findAllAuthors() {
+    return this.authorRepository.save(Author.builder()
+                    .firstName("Ale")
+                    .lastName("Flo")
+                    .birthdate(LocalDate.parse("2025-05-06"))
+                    .build())
+            .doOnNext(author -> log.info("{}", author))
+            .flatMapMany(author -> this.authorRepository.findAll())
+            .map(this.authorMapper::toAuthorResponse);
+}
+````
+
+📋 Resultado observado
+
+- Se ejecutó correctamente un INSERT.
+- Luego se ejecutó el SELECT de todos los autores.
+- La respuesta incluyó el autor recién insertado.
+- No se produjo ningún error.
+
+Log en el Ide
+
+````bash
+io.r2dbc.postgresql.PARAM                : Bind parameter [0] to: Ale
+io.r2dbc.postgresql.PARAM                : Bind parameter [1] to: Flo
+io.r2dbc.postgresql.PARAM                : Bind parameter [2] to: 2025-05-06
+io.r2dbc.postgresql.QUERY                : Executing query: INSERT INTO authors (first_name, last_name, birthdate) VALUES ($1, $2, $3) RETURNING id
+d.m.r.a.service.impl.AuthorServiceImpl   : Author(id=5, firstName=Ale, lastName=Flo, birthdate=2025-05-06)
+io.r2dbc.postgresql.QUERY                : Executing query: SELECT authors.* FROM authors
+````
+
+Log en el cliente
+
+````bash
+$ curl -v http://localhost:8080/api/v1/authors/stream
+>
+< HTTP/1.1 200 OK
+< transfer-encoding: chunked
+< Content-Type: text/event-stream;charset=UTF-8
+<
+data:{"id":1,"firstName":"Milagros","lastName":"Díaz","birthdate":"2006-06-15"}
+
+data:{"id":2,"firstName":"Lesly","lastName":"Águila","birthdate":"1995-06-09"}
+
+data:{"id":3,"firstName":"Kiara","lastName":"Lozano","birthdate":"2001-10-03"}
+
+data:{"id":4,"firstName":"Briela","lastName":"Cirilo","birthdate":"1997-09-25"}
+
+data:{"id":5,"firstName":"Ale","lastName":"Flo","birthdate":"2025-05-06"}
+````
+
+✅ Conclusión:
+> El método `sin readOnly` permite insertar datos normalmente.
+
+### 🔵 2️⃣ Prueba `CON` `@Transactional(readOnly = true)`
+
+📌 Código del método
+
+````java
+
+@Override
+@Transactional(readOnly = true)
+public Flux<AuthorResponse> findAllAuthors() {
+    return this.authorRepository.save(Author.builder()
+                    .firstName("Ale")
+                    .lastName("Flo")
+                    .birthdate(LocalDate.parse("2025-05-06"))
+                    .build())
+            .doOnNext(author -> log.info("{}", author))
+            .flatMapMany(author -> this.authorRepository.findAll())
+            .map(this.authorMapper::toAuthorResponse);
+}
+````
+
+📋 Resultado observado
+
+- La transacción inició en modo `READ ONLY`.
+- PostgreSQL `bloqueó la escritura`.
+- Se produjo un `rollback` automático.
+- La llamada devolvió `error HTTP 500`.
+
+Log en el ide
+
+````bash
+DEBUG 17820 --- io.r2dbc.postgresql.QUERY                : Executing query: BEGIN READ ONLY
+DEBUG 17820 --- io.r2dbc.postgresql.PARAM                : Bind parameter [0] to: Ale
+DEBUG 17820 --- io.r2dbc.postgresql.PARAM                : Bind parameter [1] to: Flo
+DEBUG 17820 --- io.r2dbc.postgresql.PARAM                : Bind parameter [2] to: 2025-05-06
+DEBUG 17820 --- io.r2dbc.postgresql.QUERY                : Executing query: INSERT INTO authors (first_name, last_name, birthdate) VALUES ($1, $2, $3) RETURNING id
+DEBUG 17820 --- io.r2dbc.postgresql.QUERY                : Executing query: ROLLBACK
+ERROR 17820 --- a.w.r.e.AbstractErrorWebExceptionHandler : [35475d0d-4]  500 Server Error for HTTP GET "/api/v1/authors/stream"
+
+org.springframework.dao.DataAccessResourceFailureException: executeMany; SQL [INSERT INTO authors (first_name, last_name, birthdate) VALUES ($1, $2, $3)]; no se puede ejecutar INSERT en una transacción de sólo lectura
+````
+
+Log en el cliente
+
+````bash
+$ curl -v http://localhost:8080/api/v1/authors/stream | jq
+>
+< HTTP/1.1 500 Internal Server Error
+< Content-Type: application/json
+< Content-Length: 319
+<
+{
+  "timestamp": "2025-06-29T00:35:33.603+00:00",
+  "path": "/api/v1/authors/stream",
+  "status": 500,
+  "error": "Internal Server Error",
+  "requestId": "35475d0d-4",
+  "message": "executeMany; SQL [INSERT INTO authors (first_name, last_name, birthdate) VALUES ($1, $2, $3)]; no se puede ejecutar INSERT en una transacción de sólo lectura"
+}
+````
+
+✅ Conclusión:
+> `@Transactional(readOnly = true)` se traduce correctamente en `BEGIN READ ONLY` y
+> `PostgreSQL bloquea cualquier INSERT`.
+
+### ✨ Conclusiones finales
+
+1. La anotación `@Transactional` en aplicaciones reactivas con `Spring WebFlux` y `R2DBC` funciona correctamente para
+   delimitar transacciones que modifican la base de datos (`INSERT`, `UPDATE`, `DELETE`).
+2. La anotación `@Transactional(readOnly = true)` también funciona correctamente, al iniciar la transacción en modo
+   `READ ONLY` en `PostgreSQL`.
+3. Al intentar insertar datos dentro de una transacción de solo lectura, `PostgreSQL` bloquea la operación con un error
+   claro, y `Spring` realiza un `rollback automático`.
+4. Estas pruebas demuestran de forma empírica que el soporte de `readOnly=true` está operativo en `Spring Boot 3.5.x`
+   sin necesidad de configuraciones adicionales.
