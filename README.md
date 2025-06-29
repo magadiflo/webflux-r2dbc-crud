@@ -481,7 +481,12 @@ public interface BookRepository extends ReactiveCrudRepository<Book, Integer> {
 Antes de crear el repositorio `AuthorRepository` vamos a crear una proyección basada en interfaz que luego la usaremos
 en algunos métodos del repositorio.
 
+Crearemos la interfaz de proyección `AuthorProjection` que será utilizada en `Spring Data R2DBC` para exponer datos
+de la entidad `Author` de manera optimizada en respuestas JSON, evitando la necesidad de crear un `DTO` separado.
+
 ````java
+
+@JsonPropertyOrder(value = {"firstName", "lastName", "fullName", "birthdate"})
 public interface AuthorProjection {
     String getFirstName();
 
@@ -498,7 +503,31 @@ public interface AuthorProjection {
 }
 ````
 
-> Más adelante explicamos en detalle qué es esto de las proyecciones.
+Esta interfaz utiliza la anotación `@JsonPropertyOrder(value = {"firstName", "lastName", "fullName", "birthdate"})`
+para ordenar explícitamente los campos en la respuesta JSON en el orden indicado.
+
+Sin esta anotación:
+
+- Jackson no garantiza el orden de los campos.
+- El orden puede cambiar entre ejecuciones, versiones de Spring, o versiones de Jackson.
+- Campos default como fullName suelen aparecer en posiciones impredecibles.
+
+Con esta anotación:
+
+- La respuesta JSON mantiene siempre un orden estable.
+- Se mejora la claridad para clientes y frontends.
+- Se facilita la validación en tests automatizados.
+
+### ✨ Nota importante
+
+> La anotación `@JsonPropertyOrder` solo es necesaria en `interfaces` de proyección, ya que en estas el orden de las
+> propiedades no está garantizado por defecto y puede variar.
+>
+> Si en lugar de una interfaz usamos un `record` o una `clase` DTO convencional, no necesitamos esta anotación, ya que
+> en un `record`, el orden de los campos en el JSON coincide con el orden en que se definen los componentes del record.
+> En una clase, Jackson respeta el orden en que declares los atributos.
+
+> Más adelante explicamos en detalle qué es esto de las `proyecciones`.
 
 Ahora, mostramos la creación del repositorio `AuthorRepository` para la entidad `Author`. Algo que vamos a hacer en
 este repositorio es que a pesar de que el `ReactiveCrudRepository` ya viene con métodos predefinidos como el
@@ -1282,3 +1311,10 @@ $ curl -v http://localhost:8080/api/v1/authors/stream | jq
    claro, y `Spring` realiza un `rollback automático`.
 4. Estas pruebas demuestran de forma empírica que el soporte de `readOnly=true` está operativo en `Spring Boot 3.5.x`
    sin necesidad de configuraciones adicionales.
+
+🔔 Importante
+
+- `R2DBC + PostgreSQL`: la restricción de solo lectura la hace la base de datos.
+- `JPA + Hibernate`: la restricción de solo lectura la hace Hibernate en la sesión.
+- No todas las bases de datos se comportan igual.
+- Siempre es buena práctica declarar la intención con `readOnly = true`.
