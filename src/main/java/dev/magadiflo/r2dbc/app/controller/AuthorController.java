@@ -56,7 +56,7 @@ public class AuthorController {
     public Mono<ResponseEntity<Void>> saveAuthor(@RequestBody Mono<AuthorRequest> authorRequestMono) {
         return authorRequestMono
                 .transform(RequestValidator.validate())
-                .as(this.authorService::saveAuthor)
+                .flatMap(this.authorService::saveAuthor)
                 .map(affectedRows -> ResponseEntity.status(HttpStatus.CREATED).build());
     }
 
@@ -65,7 +65,7 @@ public class AuthorController {
                                                                @RequestBody Mono<AuthorRequest> authorRequestMono) {
         return authorRequestMono
                 .transform(RequestValidator.validate())
-                .as(validatedRequestMono -> this.authorService.updateAuthor(authorId, validatedRequestMono))
+                .flatMap(authorRequest -> this.authorService.updateAuthor(authorId, authorRequest))
                 .map(ResponseEntity::ok);
     }
 

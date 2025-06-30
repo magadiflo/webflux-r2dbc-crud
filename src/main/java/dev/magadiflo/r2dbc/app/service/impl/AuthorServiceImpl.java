@@ -53,18 +53,16 @@ public class AuthorServiceImpl implements AuthorService {
 
     @Override
     @Transactional
-    public Mono<Integer> saveAuthor(Mono<AuthorRequest> authorRequestMono) {
-        return authorRequestMono
-                .map(this.authorMapper::toAuthor)
+    public Mono<Integer> saveAuthor(AuthorRequest authorRequest) {
+        return Mono.fromSupplier(() -> this.authorMapper.toAuthor(authorRequest))
                 .flatMap(this.authorRepository::saveAuthor);
     }
 
     @Override
     @Transactional
-    public Mono<AuthorProjection> updateAuthor(Integer authorId, Mono<AuthorRequest> authorRequestMono) {
+    public Mono<AuthorProjection> updateAuthor(Integer authorId, AuthorRequest authorRequest) {
         return this.authorRepository.findById(authorId)
-                .flatMap(author -> authorRequestMono)
-                .map(this.authorMapper::toAuthor)
+                .map(author -> this.authorMapper.toAuthor(authorRequest))
                 .doOnNext(author -> author.setId(authorId))
                 .flatMap(this.authorRepository::updateAuthor)
                 .flatMap(affectedRows -> this.authorRepository.findAuthorById(authorId))

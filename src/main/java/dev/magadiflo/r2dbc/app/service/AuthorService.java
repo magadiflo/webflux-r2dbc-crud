@@ -14,9 +14,9 @@ public interface AuthorService {
 
     Mono<Page<AuthorProjection>> getAllAuthorsToPage(String query, int pageNumber, int pageSize);
 
-    Mono<Integer> saveAuthor(Mono<AuthorRequest> authorRequestMono);
+    Mono<Integer> saveAuthor(AuthorRequest authorRequest);
 
-    Mono<AuthorProjection> updateAuthor(Integer authorId, Mono<AuthorRequest> authorRequestMono);
+    Mono<AuthorProjection> updateAuthor(Integer authorId, AuthorRequest authorRequest);
 
     Mono<Boolean> deleteAuthor(Integer authorId);
 }

@@ -107,8 +107,7 @@ class AuthorServiceImplTest extends AbstractTest {
 
     @Test
     void saveAuthor() {
-        Mono<AuthorRequest> authorRequestMono = Mono.just(new AuthorRequest("Vanesa", "Flores", LocalDate.parse("2005-05-15")));
-        this.authorService.saveAuthor(authorRequestMono)
+        this.authorService.saveAuthor(new AuthorRequest("Vanesa", "Flores", LocalDate.parse("2005-05-15")))
                 .as(StepVerifier::create)
                 .assertNext(affectedRows -> Assertions.assertEquals(1, affectedRows))
                 .verifyComplete();
@@ -116,8 +115,7 @@ class AuthorServiceImplTest extends AbstractTest {
 
     @Test
     void updateAuthor() {
-        Mono<AuthorRequest> authorRequestMono = Mono.just(new AuthorRequest("Vanesa", "Flores", LocalDate.parse("2005-05-15")));
-        this.authorService.updateAuthor(1, authorRequestMono)
+        this.authorService.updateAuthor(1, new AuthorRequest("Vanesa", "Flores", LocalDate.parse("2005-05-15")))
                 .as(StepVerifier::create)
                 .assertNext(authorProjection -> {
                     Assertions.assertEquals("Vanesa", authorProjection.getFirstName());
@@ -130,8 +128,7 @@ class AuthorServiceImplTest extends AbstractTest {
 
     @Test
     void throwErrorWhenUpdateAuthorWithIdThatDoesNotExist() {
-        Mono<AuthorRequest> authorRequestMono = Mono.just(new AuthorRequest("Vanesa", "Flores", LocalDate.parse("2005-05-15")));
-        this.authorService.updateAuthor(5, authorRequestMono)
+        this.authorService.updateAuthor(5, new AuthorRequest("Vanesa", "Flores", LocalDate.parse("2005-05-15")))
                 .as(StepVerifier::create)
                 .expectErrorSatisfies(throwable -> {
                     Assertions.assertEquals(AuthorNotFoundException.class, throwable.getClass());
