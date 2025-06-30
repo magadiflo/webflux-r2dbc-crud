@@ -10,4 +10,16 @@ public class ApplicationExceptions {
     public static <T> Mono<T> authorNotFound(Integer authorId) {
         return Mono.error(() -> new AuthorNotFoundException(authorId));
     }
+
+    public static <T> Mono<T> missingFirstName() {
+        return Mono.error(() -> new InvalidInputException("El nombre es requerido"));
+    }
+
+    public static <T> Mono<T> missingLastName() {
+        return Mono.error(() -> new InvalidInputException("El apellido es requerido"));
+    }
+
+    public static <T> Mono<T> missingBirthdate() {
+        return Mono.error(() -> new InvalidInputException("La fecha de nacimiento es requerido"));
+    }
 }
