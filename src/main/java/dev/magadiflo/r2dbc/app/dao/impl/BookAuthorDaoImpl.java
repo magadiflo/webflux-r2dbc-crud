@@ -34,21 +34,14 @@ public class BookAuthorDaoImpl implements BookAuthorDao {
 
     @Override
     public Mono<Long> saveBookAuthor(BookAuthor bookAuthor) {
-        String sql = """
-                INSERT INTO book_authors(book_id, author_id)
-                VALUES(:bookId, :authorId)
-                """;
-        return this.databaseClient
-                .sql(sql)
-                .bind(BOOK_ID, bookAuthor.getBookId())
-                .bind(AUTHOR_ID, bookAuthor.getAuthorId())
-                .fetch()
-                .rowsUpdated();
+        return this.rowsUpdatedAfterInsert(bookAuthor);
     }
 
     @Override
     public Mono<Void> saveAllBookAuthor(List<BookAuthor> bookAuthorList) {
-        return null;
+        return Flux.fromIterable(bookAuthorList)
+                .flatMap(this::rowsUpdatedAfterInsert)
+                .then();
     }
 
     @Override
@@ -142,5 +135,18 @@ public class BookAuthorDaoImpl implements BookAuthorDao {
                 row.get("online_availability", Boolean.class),
                 row.get("concat_authors", String.class)
         );
+    }
+
+    private Mono<Long> rowsUpdatedAfterInsert(BookAuthor bookAuthor) {
+        String sql = """
+                INSERT INTO book_authors(book_id, author_id)
+                VALUES(:bookId, :authorId)
+                """;
+        return this.databaseClient
+                .sql(sql)
+                .bind(BOOK_ID, bookAuthor.getBookId())
+                .bind(AUTHOR_ID, bookAuthor.getAuthorId())
+                .fetch()
+                .rowsUpdated();
     }
 }

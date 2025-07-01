@@ -13,6 +13,7 @@ import org.springframework.dao.DuplicateKeyException;
 import reactor.test.StepVerifier;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @Slf4j
 @Import(BookAuthorDaoImpl.class)
@@ -38,11 +39,31 @@ class BookAuthorDaoImplTest extends AbstractTest {
     void saveBookAuthorExpectError() {
         this.bookAuthorDao.saveBookAuthor(new BookAuthor(1, 1))
                 .as(StepVerifier::create)
-                .expectError(DuplicateKeyException.class);
+                .expectError(DuplicateKeyException.class)
+                .verify();
     }
 
     @Test
     void saveAllBookAuthor() {
+        this.bookAuthorDao.saveAllBookAuthor(List.of(
+                        new BookAuthor(3, 1),
+                        new BookAuthor(4, 1),
+                        new BookAuthor(2, 2)
+                ))
+                .as(StepVerifier::create)
+                .verifyComplete();
+    }
+
+    @Test
+    void saveAllBookAuthorExpectError() {
+        this.bookAuthorDao.saveAllBookAuthor(List.of(
+                        new BookAuthor(3, 1),
+                        new BookAuthor(4, 1),
+                        new BookAuthor(1, 1)
+                ))
+                .as(StepVerifier::create)
+                .expectError(DuplicateKeyException.class)
+                .verify();
     }
 
     @Test
