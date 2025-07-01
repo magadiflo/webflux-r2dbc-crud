@@ -34,14 +34,68 @@ class BookAuthorDaoImplTest extends AbstractTest {
 
     @Test
     void existBookAuthorByBookId() {
+        this.bookAuthorDao.existBookAuthorByBookId(1)
+                .as(StepVerifier::create)
+                .expectNext(true)
+                .verifyComplete();
+    }
+
+    @Test
+    void notExistBookAuthorByBookId() {
+        this.bookAuthorDao.existBookAuthorByBookId(3)
+                .as(StepVerifier::create)
+                .expectNext(false)
+                .verifyComplete();
     }
 
     @Test
     void existBookAuthorByAuthorId() {
+        this.bookAuthorDao.existBookAuthorByAuthorId(1)
+                .as(StepVerifier::create)
+                .expectNext(true)
+                .verifyComplete();
+    }
+
+    @Test
+    void notExistBookAuthorByAuthorId() {
+        this.bookAuthorDao.existBookAuthorByAuthorId(4)
+                .as(StepVerifier::create)
+                .expectNext(false)
+                .verifyComplete();
     }
 
     @Test
     void deleteBookAuthorByBookId() {
+        // Verificamos que exista por el BookId
+        this.bookAuthorDao.existBookAuthorByBookId(1)
+                .as(StepVerifier::create)
+                .expectNext(true)
+                .verifyComplete();
+
+        // Eliminamos
+        this.bookAuthorDao.deleteBookAuthorByBookId(1)
+                .as(StepVerifier::create)
+                .verifyComplete();
+
+        // Verificamos que ya no existe
+        this.bookAuthorDao.existBookAuthorByBookId(1)
+                .as(StepVerifier::create)
+                .expectNext(false)
+                .verifyComplete();
+    }
+
+    @Test
+    void deleteBookAuthorByBookIdWhenBookIdNotExist() {
+        // Verificamos que no existe
+        this.bookAuthorDao.existBookAuthorByBookId(3)
+                .as(StepVerifier::create)
+                .expectNext(false)
+                .verifyComplete();
+
+        // Eliminamos
+        this.bookAuthorDao.deleteBookAuthorByBookId(3)
+                .as(StepVerifier::create)
+                .verifyComplete();
     }
 
     @Test
@@ -49,8 +103,8 @@ class BookAuthorDaoImplTest extends AbstractTest {
     }
 
     @Test
-    void findByBookId() {
-        this.bookAuthorDao.findByBookId(1)
+    void findBookWithTheirAuthorsByBookId() {
+        this.bookAuthorDao.findBookWithTheirAuthorsByBookId(1)
                 .doOnNext(bookProjection -> log.info("{}", bookProjection))
                 .as(StepVerifier::create)
                 .assertNext(bookProjection -> {
@@ -66,15 +120,11 @@ class BookAuthorDaoImplTest extends AbstractTest {
     }
 
     @Test
-    void findByBookIdWhenIdNotExists() {
-        this.bookAuthorDao.findByBookId(3)
+    void findBookWithTheirAuthorsByBookIdWhenIdNotExists() {
+        this.bookAuthorDao.findBookWithTheirAuthorsByBookId(3)
                 .doOnNext(bookProjection -> log.info("{}", bookProjection))
                 .as(StepVerifier::create)
                 .verifyComplete();
-    }
-
-    @Test
-    void findAllBookAuthorByBookId() {
     }
 
     @Test

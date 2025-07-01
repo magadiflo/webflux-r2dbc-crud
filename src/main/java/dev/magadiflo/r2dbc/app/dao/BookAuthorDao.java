@@ -24,9 +24,7 @@ public interface BookAuthorDao {
 
     Mono<Void> deleteBookAuthorByAuthorId(Integer authorId);
 
-    Mono<BookProjection> findByBookId(Integer bookId);
-
-    Mono<BookProjection> findAllBookAuthorByBookId(Integer bookId);
+    Mono<BookProjection> findBookWithTheirAuthorsByBookId(Integer bookId);
 
     Flux<BookProjection> findAllToPage(BookCriteria bookCriteria, Pageable pageable);
 }

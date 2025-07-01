@@ -42,17 +42,46 @@ public class BookAuthorDaoImpl implements BookAuthorDao {
 
     @Override
     public Mono<Boolean> existBookAuthorByBookId(Integer bookId) {
-        return null;
+        String sql = """
+                SELECT EXISTS(
+                    SELECT 1
+                    FROM book_authors AS ba
+                    WHERE ba.book_id = :bookId
+                ) AS result
+                """;
+        return this.databaseClient
+                .sql(sql)
+                .bind("bookId", bookId)
+                .map((row, rowMetadata) -> row.get("result", Boolean.class))
+                .one();
     }
 
     @Override
     public Mono<Boolean> existBookAuthorByAuthorId(Integer authorId) {
-        return null;
+        String sql = """
+                SELECT EXISTS(
+                    SELECT 1
+                    FROM book_authors AS ba
+                    WHERE ba.author_id = :authorId
+                ) AS result
+                """;
+        return this.databaseClient
+                .sql(sql)
+                .bind("authorId", authorId)
+                .map((row, rowMetadata) -> row.get("result", Boolean.class))
+                .one();
     }
 
     @Override
     public Mono<Void> deleteBookAuthorByBookId(Integer bookId) {
-        return null;
+        String sql = """
+                DELETE FROM book_authors
+                WHERE book_id = :bookId
+                """;
+        return this.databaseClient
+                .sql(sql)
+                .bind("bookId", bookId)
+                .then();
     }
 
     @Override
@@ -61,7 +90,7 @@ public class BookAuthorDaoImpl implements BookAuthorDao {
     }
 
     @Override
-    public Mono<BookProjection> findByBookId(Integer bookId) {
+    public Mono<BookProjection> findBookWithTheirAuthorsByBookId(Integer bookId) {
         String sql = """
                 SELECT b.title,
                         b.publication_date,
@@ -81,11 +110,6 @@ public class BookAuthorDaoImpl implements BookAuthorDao {
                 .bind("bookId", bookId)
                 .map(this.mappingBookProjection())
                 .one();
-    }
-
-    @Override
-    public Mono<BookProjection> findAllBookAuthorByBookId(Integer bookId) {
-        return null;
     }
 
     @Override
