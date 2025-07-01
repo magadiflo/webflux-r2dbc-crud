@@ -2,12 +2,14 @@ package dev.magadiflo.r2dbc.app.integration;
 
 import dev.magadiflo.r2dbc.app.dao.BookAuthorDao;
 import dev.magadiflo.r2dbc.app.dao.impl.BookAuthorDaoImpl;
+import dev.magadiflo.r2dbc.app.entity.BookAuthor;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.data.r2dbc.DataR2dbcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DuplicateKeyException;
 import reactor.test.StepVerifier;
 
 import java.time.LocalDate;
@@ -26,6 +28,17 @@ class BookAuthorDaoImplTest extends AbstractTest {
 
     @Test
     void saveBookAuthor() {
+        this.bookAuthorDao.saveBookAuthor(new BookAuthor(4, 3))
+                .as(StepVerifier::create)
+                .expectNext(1L)
+                .verifyComplete();
+    }
+
+    @Test
+    void saveBookAuthorExpectError() {
+        this.bookAuthorDao.saveBookAuthor(new BookAuthor(1, 1))
+                .as(StepVerifier::create)
+                .expectError(DuplicateKeyException.class);
     }
 
     @Test

@@ -24,6 +24,8 @@ import java.util.function.BiFunction;
 public class BookAuthorDaoImpl implements BookAuthorDao {
 
     private final DatabaseClient databaseClient;
+    private static final String BOOK_ID = "bookId";
+    private static final String AUTHOR_ID = "authorId";
 
     @Override
     public Mono<Long> countBookAuthorByCriteria(BookCriteria bookCriteria) {
@@ -32,7 +34,16 @@ public class BookAuthorDaoImpl implements BookAuthorDao {
 
     @Override
     public Mono<Long> saveBookAuthor(BookAuthor bookAuthor) {
-        return null;
+        String sql = """
+                INSERT INTO book_authors(book_id, author_id)
+                VALUES(:bookId, :authorId)
+                """;
+        return this.databaseClient
+                .sql(sql)
+                .bind(BOOK_ID, bookAuthor.getBookId())
+                .bind(AUTHOR_ID, bookAuthor.getAuthorId())
+                .fetch()
+                .rowsUpdated();
     }
 
     @Override
@@ -51,7 +62,7 @@ public class BookAuthorDaoImpl implements BookAuthorDao {
                 """;
         return this.databaseClient
                 .sql(sql)
-                .bind("bookId", bookId)
+                .bind(BOOK_ID, bookId)
                 .map((row, rowMetadata) -> row.get("result", Boolean.class))
                 .one();
     }
@@ -67,7 +78,7 @@ public class BookAuthorDaoImpl implements BookAuthorDao {
                 """;
         return this.databaseClient
                 .sql(sql)
-                .bind("authorId", authorId)
+                .bind(AUTHOR_ID, authorId)
                 .map((row, rowMetadata) -> row.get("result", Boolean.class))
                 .one();
     }
@@ -80,7 +91,7 @@ public class BookAuthorDaoImpl implements BookAuthorDao {
                 """;
         return this.databaseClient
                 .sql(sql)
-                .bind("bookId", bookId)
+                .bind(BOOK_ID, bookId)
                 .then();
     }
 
@@ -92,7 +103,7 @@ public class BookAuthorDaoImpl implements BookAuthorDao {
                 """;
         return this.databaseClient
                 .sql(sql)
-                .bind("authorId", authorId)
+                .bind(AUTHOR_ID, authorId)
                 .then();
     }
 
@@ -114,7 +125,7 @@ public class BookAuthorDaoImpl implements BookAuthorDao {
                 """;
         return this.databaseClient
                 .sql(sql)
-                .bind("bookId", bookId)
+                .bind(BOOK_ID, bookId)
                 .map(this.mappingBookProjection())
                 .one();
     }
