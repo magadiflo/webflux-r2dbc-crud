@@ -15,6 +15,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiFunction;
 
@@ -125,7 +126,25 @@ public class BookAuthorDaoImpl implements BookAuthorDao {
 
     @Override
     public Flux<BookProjection> findAllToPage(BookCriteria bookCriteria, Pageable pageable) {
-        return null;
+        String sql = this.buildSql(bookCriteria);
+        DatabaseClient.GenericExecuteSpec querySpec = this.databaseClient.sql(sql);
+
+        if (bookCriteria.hasQuery()) {
+            String likePattern = "%" + bookCriteria.query().trim() + "%";
+            querySpec = querySpec.bind("query", likePattern);
+        }
+
+        if (bookCriteria.hasPublicationDate()) {
+            querySpec = querySpec.bind("publicationDate", bookCriteria.publicationDate());
+        }
+
+        querySpec = querySpec
+                .bind("limit", pageable.getPageSize())
+                .bind("offset", pageable.getOffset());
+
+        return querySpec
+                .map(this.mappingBookProjection())
+                .all();
     }
 
     private BiFunction<Row, RowMetadata, BookProjection> mappingBookProjection() {
@@ -148,5 +167,48 @@ public class BookAuthorDaoImpl implements BookAuthorDao {
                 .bind(AUTHOR_ID, bookAuthor.getAuthorId())
                 .fetch()
                 .rowsUpdated();
+    }
+
+    private String buildSql(BookCriteria bookCriteria) {
+        List<String> conditions = new ArrayList<>();
+        StringBuilder sql = new StringBuilder("""
+                SELECT b.title,
+                        b.publication_date,
+                        b.online_availability,
+                        STRING_AGG(a.first_name||' '||a.last_name, ', ') as concat_authors
+                FROM books AS b
+                    LEFT JOIN book_authors AS ba ON(b.id = ba.book_id)
+                    LEFT JOIN authors AS a ON(ba.author_id = a.id)
+                """);
+
+        if (bookCriteria.hasQuery()) {
+            conditions.add("""
+                    (
+                        LOWER(b.title) LIKE LOWER(:query)
+                        OR LOWER(a.first_name) LIKE LOWER(:query)
+                        OR LOWER(a.last_name) LIKE LOWER(:query)
+                    )
+                    """);
+        }
+
+        if (bookCriteria.hasPublicationDate()) {
+            conditions.add("b.publication_date = :publicationDate");
+        }
+
+        if (!conditions.isEmpty()) {
+            sql.append("WHERE ")
+                    .append(String.join(" AND ", conditions))
+                    .append("\n");
+        }
+
+        sql.append("""
+                GROUP BY b.title,
+                        b.publication_date,
+                        b.online_availability
+                ORDER BY b.title
+                LIMIT :limit
+                OFFSET :offset
+                """);
+        return sql.toString();
     }
 }
