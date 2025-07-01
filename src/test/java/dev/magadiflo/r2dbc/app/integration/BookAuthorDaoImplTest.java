@@ -100,6 +100,36 @@ class BookAuthorDaoImplTest extends AbstractTest {
 
     @Test
     void deleteBookAuthorByAuthorId() {
+        // Verificamos que exista por el AuthorId
+        this.bookAuthorDao.existBookAuthorByAuthorId(1)
+                .as(StepVerifier::create)
+                .expectNext(true)
+                .verifyComplete();
+
+        // Eliminamos
+        this.bookAuthorDao.deleteBookAuthorByAuthorId(1)
+                .as(StepVerifier::create)
+                .verifyComplete();
+
+        // Verificamos que ya no existe
+        this.bookAuthorDao.existBookAuthorByAuthorId(1)
+                .as(StepVerifier::create)
+                .expectNext(false)
+                .verifyComplete();
+    }
+
+    @Test
+    void deleteBookAuthorByBookIdWhenAuthorIdNotExist() {
+        // Verificamos que no existe
+        this.bookAuthorDao.existBookAuthorByAuthorId(4)
+                .as(StepVerifier::create)
+                .expectNext(false)
+                .verifyComplete();
+
+        // Eliminamos
+        this.bookAuthorDao.deleteBookAuthorByAuthorId(4)
+                .as(StepVerifier::create)
+                .verifyComplete();
     }
 
     @Test

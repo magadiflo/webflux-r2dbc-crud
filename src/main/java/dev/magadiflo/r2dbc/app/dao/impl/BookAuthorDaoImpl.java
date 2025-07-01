@@ -86,7 +86,14 @@ public class BookAuthorDaoImpl implements BookAuthorDao {
 
     @Override
     public Mono<Void> deleteBookAuthorByAuthorId(Integer authorId) {
-        return null;
+        String sql = """
+                DELETE FROM book_authors
+                WHERE author_id = :authorId
+                """;
+        return this.databaseClient
+                .sql(sql)
+                .bind("authorId", authorId)
+                .then();
     }
 
     @Override
