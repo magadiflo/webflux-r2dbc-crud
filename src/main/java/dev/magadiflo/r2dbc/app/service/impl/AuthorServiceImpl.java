@@ -1,5 +1,6 @@
 package dev.magadiflo.r2dbc.app.service.impl;
 
+import dev.magadiflo.r2dbc.app.dao.BookAuthorDao;
 import dev.magadiflo.r2dbc.app.dto.AuthorRequest;
 import dev.magadiflo.r2dbc.app.dto.AuthorResponse;
 import dev.magadiflo.r2dbc.app.exception.ApplicationExceptions;
@@ -24,6 +25,7 @@ import reactor.core.publisher.Mono;
 public class AuthorServiceImpl implements AuthorService {
 
     private final AuthorRepository authorRepository;
+    private final BookAuthorDao bookAuthorDao;
     private final AuthorMapper authorMapper;
 
     @Override
@@ -73,7 +75,9 @@ public class AuthorServiceImpl implements AuthorService {
     @Transactional
     public Mono<Boolean> deleteAuthor(Integer authorId) {
         return this.authorRepository.findById(authorId)
-                .flatMap(author -> this.authorRepository.deleteAuthorById(authorId))
-                .switchIfEmpty(ApplicationExceptions.authorNotFound(authorId));
+                .switchIfEmpty(ApplicationExceptions.authorNotFound(authorId))
+                .flatMap(author -> this.bookAuthorDao.existBookAuthorByAuthorId(authorId))
+                .flatMap(hasBooks -> hasBooks ? this.bookAuthorDao.deleteBookAuthorByAuthorId(authorId) : Mono.empty())
+                .then(this.authorRepository.deleteAuthorById(authorId));
     }
 }

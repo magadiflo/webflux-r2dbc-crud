@@ -138,8 +138,16 @@ class AuthorServiceImplTest extends AbstractTest {
     }
 
     @Test
-    void deleteAuthor() {
+    void deleteAuthorWithoutAssociatedBooks() {
         this.authorService.deleteAuthor(4)
+                .as(StepVerifier::create)
+                .assertNext(Assertions::assertTrue)
+                .verifyComplete();
+    }
+
+    @Test
+    void deleteAuthorWithAssociatedBooks() {
+        this.authorService.deleteAuthor(2)
                 .as(StepVerifier::create)
                 .assertNext(Assertions::assertTrue)
                 .verifyComplete();
