@@ -30,7 +30,12 @@ public class BookAuthorDaoImpl implements BookAuthorDao {
 
     @Override
     public Mono<Long> countBookAuthorByCriteria(BookCriteria bookCriteria) {
-        return null;
+        String sql = this.buildCountSql(bookCriteria);
+        DatabaseClient.GenericExecuteSpec querySpec = this.databaseClient.sql(sql);
+        querySpec = this.bindCriteriaParameters(querySpec, bookCriteria);
+        return querySpec
+                .map((row, rowMetadata) -> row.get("total", Long.class))
+                .one();
     }
 
     @Override
@@ -126,22 +131,12 @@ public class BookAuthorDaoImpl implements BookAuthorDao {
 
     @Override
     public Flux<BookProjection> findAllToPage(BookCriteria bookCriteria, Pageable pageable) {
-        String sql = this.buildSql(bookCriteria);
+        String sql = this.buildDetailSql(bookCriteria);
         DatabaseClient.GenericExecuteSpec querySpec = this.databaseClient.sql(sql);
-
-        if (bookCriteria.hasQuery()) {
-            String likePattern = "%" + bookCriteria.query().trim() + "%";
-            querySpec = querySpec.bind("query", likePattern);
-        }
-
-        if (bookCriteria.hasPublicationDate()) {
-            querySpec = querySpec.bind("publicationDate", bookCriteria.publicationDate());
-        }
-
+        querySpec = this.bindCriteriaParameters(querySpec, bookCriteria);
         querySpec = querySpec
                 .bind("limit", pageable.getPageSize())
                 .bind("offset", pageable.getOffset());
-
         return querySpec
                 .map(this.mappingBookProjection())
                 .all();
@@ -169,8 +164,7 @@ public class BookAuthorDaoImpl implements BookAuthorDao {
                 .rowsUpdated();
     }
 
-    private String buildSql(BookCriteria bookCriteria) {
-        List<String> conditions = new ArrayList<>();
+    private String buildDetailSql(BookCriteria bookCriteria) {
         StringBuilder sql = new StringBuilder("""
                 SELECT b.title,
                         b.publication_date,
@@ -180,6 +174,37 @@ public class BookAuthorDaoImpl implements BookAuthorDao {
                     LEFT JOIN book_authors AS ba ON(b.id = ba.book_id)
                     LEFT JOIN authors AS a ON(ba.author_id = a.id)
                 """);
+        sql.append(this.buildWhereClause(bookCriteria));
+        sql.append("""
+                GROUP BY b.title,
+                        b.publication_date,
+                        b.online_availability
+                ORDER BY b.title
+                LIMIT :limit
+                OFFSET :offset
+                """);
+        return sql.toString();
+    }
+
+    private String buildCountSql(BookCriteria bookCriteria) {
+        StringBuilder sql = new StringBuilder("""
+                SELECT COUNT(*) AS total
+                FROM (
+                    SELECT b.id
+                    FROM books AS b
+                    LEFT JOIN book_authors AS ba ON (b.id = ba.book_id)
+                    LEFT JOIN authors AS a ON (ba.author_id = a.id)
+                """);
+        sql.append(this.buildWhereClause(bookCriteria));
+        sql.append("""
+                    GROUP BY b.id
+                ) AS unique_books
+                """);
+        return sql.toString();
+    }
+
+    private String buildWhereClause(BookCriteria bookCriteria) {
+        List<String> conditions = new ArrayList<>();
 
         if (bookCriteria.hasQuery()) {
             conditions.add("""
@@ -195,20 +220,22 @@ public class BookAuthorDaoImpl implements BookAuthorDao {
             conditions.add("b.publication_date = :publicationDate");
         }
 
-        if (!conditions.isEmpty()) {
-            sql.append("WHERE ")
-                    .append(String.join(" AND ", conditions))
-                    .append("\n");
+        if (conditions.isEmpty()) {
+            return "";
         }
 
-        sql.append("""
-                GROUP BY b.title,
-                        b.publication_date,
-                        b.online_availability
-                ORDER BY b.title
-                LIMIT :limit
-                OFFSET :offset
-                """);
-        return sql.toString();
+        return "WHERE %s%n".formatted(String.join(" AND ", conditions));
+    }
+
+    private DatabaseClient.GenericExecuteSpec bindCriteriaParameters(DatabaseClient.GenericExecuteSpec spec, BookCriteria bookCriteria) {
+        if (bookCriteria.hasQuery()) {
+            String likePattern = "%" + bookCriteria.query().trim() + "%";
+            spec = spec.bind("query", likePattern);
+        }
+
+        if (bookCriteria.hasPublicationDate()) {
+            spec = spec.bind("publicationDate", bookCriteria.publicationDate());
+        }
+        return spec;
     }
 }

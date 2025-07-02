@@ -27,7 +27,39 @@ class BookAuthorDaoImplTest extends AbstractTest {
     private BookAuthorDao bookAuthorDao;
 
     @Test
-    void countBookAuthorByCriteria() {
+    void shouldReturnTotalCountFilteredByQuery() {
+        var criteria = new BookCriteria("ri", null);
+        this.bookAuthorDao.countBookAuthorByCriteria(criteria)
+                .as(StepVerifier::create)
+                .expectNext(2L)
+                .verifyComplete();
+    }
+
+    @Test
+    void shouldReturnTotalCountFilteredByPublicationDate() {
+        var criteria = new BookCriteria("", LocalDate.parse("1988-07-15"));
+        this.bookAuthorDao.countBookAuthorByCriteria(criteria)
+                .as(StepVerifier::create)
+                .expectNext(1L)
+                .verifyComplete();
+    }
+
+    @Test
+    void shouldReturnTotalCountFilteredByQueryAndPublicationDate() {
+        var criteria = new BookCriteria("ciu", LocalDate.parse("1985-03-18"));
+        this.bookAuthorDao.countBookAuthorByCriteria(criteria)
+                .as(StepVerifier::create)
+                .expectNext(1L)
+                .verifyComplete();
+    }
+
+    @Test
+    void shouldReturnTotalCountWithoutFilter() {
+        var criteria = new BookCriteria(" ", null);
+        this.bookAuthorDao.countBookAuthorByCriteria(criteria)
+                .as(StepVerifier::create)
+                .expectNext(4L)
+                .verifyComplete();
     }
 
     @Test
