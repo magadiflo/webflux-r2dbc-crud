@@ -1044,12 +1044,12 @@ public record AuthorRequest(String firstName,
 ````
 
 ````java
-public record RegisterBook(String title,
-                           LocalDate publicationDate,
-                           Boolean onlineAvailability,
-                           List<Integer> authors) {
-    public RegisterBook { // Constructor compacto
-        onlineAvailability = Boolean.TRUE.equals(onlineAvailability); // Valor por defecto false si el onlineAvailability es null
+public record BookRequest(String title,
+                          LocalDate publicationDate,
+                          Boolean onlineAvailability,
+                          List<Integer> authorIds) {
+    public BookRequest { // constructor compacto
+        onlineAvailability = Boolean.TRUE.equals(onlineAvailability); // si onlineAvailability es null o false dará false, caso contrario true
     }
 }
 ````

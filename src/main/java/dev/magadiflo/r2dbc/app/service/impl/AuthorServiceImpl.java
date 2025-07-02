@@ -77,7 +77,7 @@ public class AuthorServiceImpl implements AuthorService {
         return this.authorRepository.findById(authorId)
                 .switchIfEmpty(ApplicationExceptions.authorNotFound(authorId))
                 .flatMap(author -> this.bookAuthorDao.existBookAuthorByAuthorId(authorId))
-                .flatMap(hasBooks -> hasBooks ? this.bookAuthorDao.deleteBookAuthorByAuthorId(authorId) : Mono.empty())
+                .flatMap(hasBooks -> Boolean.TRUE.equals(hasBooks) ? this.bookAuthorDao.deleteBookAuthorByAuthorId(authorId) : Mono.empty())
                 .then(this.authorRepository.deleteAuthorById(authorId));
     }
 }
