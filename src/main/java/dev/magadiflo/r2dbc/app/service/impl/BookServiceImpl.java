@@ -87,7 +87,11 @@ public class BookServiceImpl implements BookService {
     @Override
     @Transactional
     public Mono<Void> deleteBook(Integer bookId) {
-        return null;
+        return this.bookRepository.findById(bookId)
+                .switchIfEmpty(ApplicationExceptions.bookNotFound(bookId))
+                .flatMap(book -> this.bookAuthorDao.existBookAuthorByBookId(bookId))
+                .flatMap(hasAuthors -> Boolean.TRUE.equals(hasAuthors) ? this.bookAuthorDao.deleteBookAuthorByBookId(bookId) : Mono.empty())
+                .then(this.bookRepository.deleteById(bookId));
     }
 
     // Mono.fromSupplier(...): internamente debes retornar un valor simple (un objeto). El resultado es un Mono que emite ese valor al suscribirse.

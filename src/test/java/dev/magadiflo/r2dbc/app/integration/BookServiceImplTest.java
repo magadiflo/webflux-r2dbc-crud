@@ -2,6 +2,7 @@ package dev.magadiflo.r2dbc.app.integration;
 
 import dev.magadiflo.r2dbc.app.dto.BookRequest;
 import dev.magadiflo.r2dbc.app.exception.AuthorIdsNotFoundException;
+import dev.magadiflo.r2dbc.app.exception.AuthorNotFoundException;
 import dev.magadiflo.r2dbc.app.exception.BookNotFoundException;
 import dev.magadiflo.r2dbc.app.proyection.BookProjection;
 import dev.magadiflo.r2dbc.app.service.BookService;
@@ -167,6 +168,27 @@ class BookServiceImplTest extends AbstractTest {
     }
 
     @Test
-    void deleteBook() {
+    void deleteBookWithoutAssociatedAuthors() {
+        this.bookService.deleteBook(3)
+                .as(StepVerifier::create)
+                .verifyComplete();
+    }
+
+    @Test
+    void deleteBookWithAssociatedBooks() {
+        this.bookService.deleteBook(1)
+                .as(StepVerifier::create)
+                .verifyComplete();
+    }
+
+    @Test
+    void throwErrorWhenDeleteBookWithIdThatDoesNotExist() {
+        this.bookService.deleteBook(5)
+                .as(StepVerifier::create)
+                .expectErrorSatisfies(throwable -> {
+                    Assertions.assertEquals(BookNotFoundException.class, throwable.getClass());
+                    Assertions.assertEquals("El libro [id=5] no fue encontrado", throwable.getMessage());
+                })
+                .verify();
     }
 }
