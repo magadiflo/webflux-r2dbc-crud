@@ -15,6 +15,10 @@ public class ApplicationExceptions {
         return Mono.error(() -> new BookNotFoundException(bookId));
     }
 
+    public static <T> Mono<T> authorIdsNotFound() {
+        return Mono.error(AuthorIdsNotFoundException::new);
+    }
+
     public static <T> Mono<T> missingFirstName() {
         return Mono.error(() -> new InvalidInputException("El nombre es requerido"));
     }
