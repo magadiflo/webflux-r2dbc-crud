@@ -1,5 +1,7 @@
 package dev.magadiflo.r2dbc.app.integration;
 
+import dev.magadiflo.r2dbc.app.dto.BookRequest;
+import dev.magadiflo.r2dbc.app.exception.AuthorIdsNotFoundException;
 import dev.magadiflo.r2dbc.app.exception.BookNotFoundException;
 import dev.magadiflo.r2dbc.app.proyection.BookProjection;
 import dev.magadiflo.r2dbc.app.service.BookService;
@@ -13,6 +15,7 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @Slf4j
 @SpringBootTest
@@ -119,7 +122,44 @@ class BookServiceImplTest extends AbstractTest {
     }
 
     @Test
-    void saveBook() {
+    void givenValidBookRequestWithAuthors_whenSave_thenReturnBookProjection() {
+        this.bookService.saveBook(new BookRequest("Spring WebFlux", LocalDate.now(), true, List.of(2, 3, 4)))
+                .doOnNext(bookProjection -> log.info("{}", bookProjection))
+                .as(StepVerifier::create)
+                .assertNext(bookProjection -> {
+                    Assertions.assertNotNull(bookProjection.title());
+                    Assertions.assertNotNull(bookProjection.publicationDate());
+                    Assertions.assertTrue(bookProjection.onlineAvailability());
+                    Assertions.assertNotNull(bookProjection.authors());
+                    Assertions.assertEquals(3, bookProjection.authorNames().size());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void givenBookRequestWithoutAuthors_whenSave_thenReturnBookProjection() {
+        this.bookService.saveBook(new BookRequest("Spring WebFlux", LocalDate.now(), true, null))
+                .doOnNext(bookProjection -> log.info("{}", bookProjection))
+                .as(StepVerifier::create)
+                .assertNext(bookProjection -> {
+                    Assertions.assertNotNull(bookProjection.title());
+                    Assertions.assertNotNull(bookProjection.publicationDate());
+                    Assertions.assertTrue(bookProjection.onlineAvailability());
+                    Assertions.assertNull(bookProjection.authors());
+                    Assertions.assertTrue(bookProjection.authorNames().isEmpty());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void givenBookRequestWithNonExistingAuthor_whenSave_thenThrowError() {
+        this.bookService.saveBook(new BookRequest("Spring WebFlux", LocalDate.now(), true, List.of(2, 4, 10)))
+                .as(StepVerifier::create)
+                .expectErrorSatisfies(throwable -> {
+                    Assertions.assertEquals(AuthorIdsNotFoundException.class, throwable.getClass());
+                    Assertions.assertEquals("Algunos IDs de autores no existen en el sistema", throwable.getMessage());
+                })
+                .verify();
     }
 
     @Test
