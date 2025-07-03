@@ -52,7 +52,7 @@ class AuthorServiceImplTest extends AbstractTest {
     }
 
     @Test
-    void findAuthorWhenIdNotExist() {
+    void givenNonExistingAuthorId_whenFind_thenThrowsError() {
         this.authorService.findAuthorById(5)
                 .as(StepVerifier::create)
                 .expectErrorSatisfies(throwable -> {

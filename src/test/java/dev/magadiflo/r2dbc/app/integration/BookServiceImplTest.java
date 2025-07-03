@@ -1,5 +1,6 @@
 package dev.magadiflo.r2dbc.app.integration;
 
+import dev.magadiflo.r2dbc.app.exception.BookNotFoundException;
 import dev.magadiflo.r2dbc.app.service.BookService;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Assertions;
@@ -36,6 +37,29 @@ class BookServiceImplTest extends AbstractTest {
 
     @Test
     void findBookById() {
+        this.bookService.findBookById(1)
+                .doOnNext(bookProjection -> log.info("{}", bookProjection))
+                .as(StepVerifier::create)
+                .assertNext(bookProjection -> {
+                    Assertions.assertEquals("Los ríos profundos", bookProjection.title());
+                    Assertions.assertEquals(LocalDate.parse("1999-01-15"), bookProjection.publicationDate());
+                    Assertions.assertTrue(bookProjection.onlineAvailability());
+                    Assertions.assertNotNull(bookProjection.authors());
+                    Assertions.assertFalse(bookProjection.authorNames().isEmpty());
+                    Assertions.assertEquals(2, bookProjection.authorNames().size());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void givenNonExistingBookId_whenDeleting_thenThrowsError() {
+        this.bookService.findBookById(5)
+                .as(StepVerifier::create)
+                .expectErrorSatisfies(throwable -> {
+                    Assertions.assertEquals(BookNotFoundException.class, throwable.getClass());
+                    Assertions.assertEquals("El libro [id=5] no fue encontrado", throwable.getMessage());
+                })
+                .verify();
     }
 
     @Test
