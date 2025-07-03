@@ -1,8 +1,11 @@
 package dev.magadiflo.r2dbc.app.service.impl;
 
+import dev.magadiflo.r2dbc.app.dao.BookAuthorDao;
 import dev.magadiflo.r2dbc.app.dto.BookRequest;
 import dev.magadiflo.r2dbc.app.dto.BookResponse;
+import dev.magadiflo.r2dbc.app.mapper.BookMapper;
 import dev.magadiflo.r2dbc.app.proyection.BookProjection;
+import dev.magadiflo.r2dbc.app.repository.BookRepository;
 import dev.magadiflo.r2dbc.app.service.BookService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,10 +19,14 @@ import reactor.core.publisher.Mono;
 @Service
 public class BookServiceImpl implements BookService {
 
+    private final BookRepository bookRepository;
+    private final BookAuthorDao bookAuthorDao;
+    private final BookMapper bookMapper;
 
     @Override
     public Flux<BookResponse> findAllBooks() {
-        return null;
+        return this.bookRepository.findAll()
+                .map(this.bookMapper::toBookResponse);
     }
 
     @Override
