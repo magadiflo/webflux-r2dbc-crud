@@ -113,12 +113,11 @@ public class BookAuthorDaoImpl implements BookAuthorDao {
                         b.publication_date,
                         b.online_availability,
                         STRING_AGG(a.first_name||' '||a.last_name, ', ') as concat_authors
-                FROM book_authors AS ba
-                    INNER JOIN books AS b ON ba.book_id = b.id
-                    INNER JOIN authors AS a ON ba.author_id = a.id
+                FROM books AS b
+                    LEFT JOIN book_authors AS ba ON(b.id = ba.book_id)
+                    LEFT JOIN authors AS a ON(ba.author_id = a.id)
                 WHERE b.id = :bookId
-                GROUP BY ba.book_id,
-                        b.title,
+                GROUP BY b.title,
                         b.publication_date,
                         b.online_availability
                 """;

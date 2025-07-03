@@ -219,8 +219,23 @@ class BookAuthorDaoImplTest extends AbstractTest {
     }
 
     @Test
-    void findBookWithTheirAuthorsByBookIdWhenIdNotExists() {
+    void givenBookWithNoAuthors_whenFindById_thenReturnsBookWithoutAuthors() {
         this.bookAuthorDao.findBookWithTheirAuthorsByBookId(3)
+                .doOnNext(bookProjection -> log.info("{}", bookProjection))
+                .as(StepVerifier::create)
+                .assertNext(bookProjection -> {
+                    Assertions.assertEquals("El zorro de arriba y el zorro de abajo", bookProjection.title());
+                    Assertions.assertEquals(LocalDate.parse("2002-05-06"), bookProjection.publicationDate());
+                    Assertions.assertFalse(bookProjection.onlineAvailability());
+                    Assertions.assertNull(bookProjection.authors());
+                    Assertions.assertTrue(bookProjection.authorNames().isEmpty());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void givenNonExistingBookId_whenFind_thenOnlyComplete() {
+        this.bookAuthorDao.findBookWithTheirAuthorsByBookId(5)
                 .doOnNext(bookProjection -> log.info("{}", bookProjection))
                 .as(StepVerifier::create)
                 .verifyComplete();

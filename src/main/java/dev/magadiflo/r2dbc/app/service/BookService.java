@@ -7,12 +7,14 @@ import org.springframework.data.domain.Page;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.LocalDate;
+
 public interface BookService {
     Flux<BookResponse> findAllBooks();
 
     Mono<BookProjection> findBookById(Integer bookId);
 
-    Mono<Page<BookProjection>> getAllBookAuthorsToPage(String query, int pageNumber, int pageSize);
+    Mono<Page<BookProjection>> findBooksWithAuthorsByCriteria(String query, LocalDate publicationDate, int pageNumber, int pageSize);
 
     Mono<BookProjection> saveBook(BookRequest bookRequest);
 

@@ -1,12 +1,15 @@
 package dev.magadiflo.r2dbc.app.integration;
 
 import dev.magadiflo.r2dbc.app.exception.BookNotFoundException;
+import dev.magadiflo.r2dbc.app.proyection.BookProjection;
 import dev.magadiflo.r2dbc.app.service.BookService;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.domain.Page;
+import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.time.LocalDate;
@@ -63,7 +66,56 @@ class BookServiceImplTest extends AbstractTest {
     }
 
     @Test
-    void getAllBookAuthorsToPage() {
+    void findBooksWithAuthorsByCriteria_withData() {
+        String query = "ri";
+        int pageNumber = 0;
+        int pageSize = 2;
+
+        Mono<Page<BookProjection>> result = this.bookService.findBooksWithAuthorsByCriteria(query, null, pageNumber, pageSize)
+                .doOnNext(bookProjections -> log.info("{}", bookProjections.getContent()));
+
+        StepVerifier.create(result)
+                .assertNext(page -> {
+                    Assertions.assertNotNull(page);
+                    Assertions.assertEquals(2, page.getContent().size());
+                    Assertions.assertEquals(0, page.getNumber());
+                    Assertions.assertEquals(2, page.getSize());
+                    Assertions.assertEquals(2, page.getTotalElements());
+                    Assertions.assertTrue(page.isFirst());
+                    Assertions.assertTrue(page.isLast());
+
+                    BookProjection firstBookProjection = page.getContent().get(0);
+                    Assertions.assertNotNull(firstBookProjection.title());
+                    Assertions.assertNotNull(firstBookProjection.publicationDate());
+                    Assertions.assertFalse(firstBookProjection.onlineAvailability());
+                    Assertions.assertNull(firstBookProjection.authors());
+                    Assertions.assertTrue(firstBookProjection.authorNames().isEmpty());
+
+                    BookProjection secondBookProjection = page.getContent().get(1);
+                    Assertions.assertNotNull(secondBookProjection.title());
+                    Assertions.assertNotNull(secondBookProjection.publicationDate());
+                    Assertions.assertTrue(secondBookProjection.onlineAvailability());
+                    Assertions.assertNotNull(secondBookProjection.authors());
+                    Assertions.assertFalse(secondBookProjection.authorNames().isEmpty());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void findBooksWithAuthorsByCriteria_withoutData() {
+        int pageNumber = 0;
+        int pageSize = 2;
+
+        Mono<Page<BookProjection>> result = this.bookService.findBooksWithAuthorsByCriteria(" ", LocalDate.now(), pageNumber, pageSize);
+
+        StepVerifier.create(result)
+                .assertNext(page -> {
+                    Assertions.assertTrue(page.getContent().isEmpty());
+                    Assertions.assertEquals(0, page.getTotalElements());
+                    Assertions.assertTrue(page.isFirst());
+                    Assertions.assertTrue(page.isLast());
+                })
+                .verifyComplete();
     }
 
     @Test
