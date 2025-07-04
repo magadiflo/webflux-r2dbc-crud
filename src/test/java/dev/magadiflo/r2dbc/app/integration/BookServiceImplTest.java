@@ -3,7 +3,6 @@ package dev.magadiflo.r2dbc.app.integration;
 import dev.magadiflo.r2dbc.app.dto.BookRequest;
 import dev.magadiflo.r2dbc.app.dto.BookUpdateRequest;
 import dev.magadiflo.r2dbc.app.exception.AuthorIdsNotFoundException;
-import dev.magadiflo.r2dbc.app.exception.AuthorNotFoundException;
 import dev.magadiflo.r2dbc.app.exception.BookNotFoundException;
 import dev.magadiflo.r2dbc.app.proyection.BookProjection;
 import dev.magadiflo.r2dbc.app.service.BookService;
@@ -186,6 +185,59 @@ class BookServiceImplTest extends AbstractTest {
                 .expectErrorSatisfies(throwable -> {
                     Assertions.assertEquals(BookNotFoundException.class, throwable.getClass());
                     Assertions.assertEquals("El libro [id=5] no fue encontrado", throwable.getMessage());
+                })
+                .verify();
+    }
+
+    @Test
+    void givenNonExistingBookId_whenUpdateAuthors_thenThrowError() {
+        this.bookService.updateBookAuthors(5, List.of())
+                .as(StepVerifier::create)
+                .expectErrorSatisfies(throwable -> {
+                    Assertions.assertEquals(BookNotFoundException.class, throwable.getClass());
+                    Assertions.assertEquals("El libro [id=5] no fue encontrado", throwable.getMessage());
+                })
+                .verify();
+    }
+
+    @Test
+    void givenBookIdAndEmptyAuthors_whenUpdateAuthors_thenRemoveAllRelations() {
+        this.bookService.updateBookAuthors(1, List.of())
+                .doOnNext(bookProjection -> log.info("{}", bookProjection))
+                .as(StepVerifier::create)
+                .assertNext(bookProjection -> {
+                    Assertions.assertNotNull(bookProjection.title());
+                    Assertions.assertNotNull(bookProjection.publicationDate());
+                    Assertions.assertTrue(bookProjection.onlineAvailability());
+                    Assertions.assertNull(bookProjection.authors());
+                    Assertions.assertTrue(bookProjection.authorNames().isEmpty());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void givenBookIdAndValidAuthors_whenUpdateAuthors_thenUpdateRelations() {
+        this.bookService.updateBookAuthors(1, List.of(3, 4, 2))
+                .doOnNext(bookProjection -> log.info("{}", bookProjection))
+                .as(StepVerifier::create)
+                .assertNext(bookProjection -> {
+                    Assertions.assertNotNull(bookProjection.title());
+                    Assertions.assertNotNull(bookProjection.publicationDate());
+                    Assertions.assertTrue(bookProjection.onlineAvailability());
+                    Assertions.assertNotNull(bookProjection.authors());
+                    Assertions.assertEquals(3, bookProjection.authorNames().size());
+                })
+                .verifyComplete();
+    }
+
+
+    @Test
+    void givenBookIdAndNonExistingAuthors_whenUpdateAuthors_thenThrowError() {
+        this.bookService.updateBookAuthors(1, List.of(3, 4, 2, 5))
+                .as(StepVerifier::create)
+                .expectErrorSatisfies(throwable -> {
+                    Assertions.assertEquals(AuthorIdsNotFoundException.class, throwable.getClass());
+                    Assertions.assertEquals("Algunos IDs de autores no existen en el sistema", throwable.getMessage());
                 })
                 .verify();
     }
