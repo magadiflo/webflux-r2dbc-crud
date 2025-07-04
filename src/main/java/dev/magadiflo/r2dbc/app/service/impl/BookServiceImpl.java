@@ -25,6 +25,7 @@ import reactor.core.publisher.Mono;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Objects;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -90,8 +91,20 @@ public class BookServiceImpl implements BookService {
     }
 
     @Override
+    @Transactional
     public Mono<BookProjection> updateBookAuthors(Integer bookId, List<Integer> authorIds) {
-        return null;
+        return this.bookRepository.findById(bookId)
+                .switchIfEmpty(ApplicationExceptions.bookNotFound(bookId))
+                .flatMap(book -> {
+                    if (Objects.isNull(authorIds) || authorIds.isEmpty()) {
+                        return this.bookAuthorDao.deleteBookAuthorByBookId(bookId);
+                    }
+                    return this.validateAuthors(authorIds)
+                            .then(this.bookAuthorDao.deleteBookAuthorByBookId(bookId))
+                            .then(Mono.fromSupplier(() -> this.bookAuthorList(authorIds, bookId)))
+                            .flatMap(this.bookAuthorDao::saveAllBookAuthor);
+                })
+                .then(this.bookAuthorDao.findBookWithTheirAuthorsByBookId(bookId));
     }
 
     @Override
@@ -111,15 +124,23 @@ public class BookServiceImpl implements BookService {
             if (bookRequest.hasNoAuthorIds()) {
                 return Mono.empty();
             }
-            return this.authorRepository.findAllAuthorsByIdIn(bookRequest.authorIds())
-                    .collectList()
-                    .flatMap(authors -> {
-                        if (bookRequest.authorIds().size() != authors.size()) {
-                            return ApplicationExceptions.authorIdsNotFound();
-                        }
-                        return Mono.empty();
-                    });
+            return this.allAuthorIdsExist(bookRequest.authorIds());
         });
+    }
+
+    private Mono<Void> validateAuthors(List<Integer> authorIds) {
+        return Mono.defer(() -> this.allAuthorIdsExist(authorIds));
+    }
+
+    private Mono<Void> allAuthorIdsExist(List<Integer> authorIds) {
+        return this.authorRepository.findAllAuthorsByIdIn(authorIds)
+                .collectList()
+                .flatMap(authors -> {
+                    if (authorIds.size() != authors.size()) {
+                        return ApplicationExceptions.authorIdsNotFound();
+                    }
+                    return Mono.empty();
+                });
     }
 
     private List<BookAuthor> bookAuthorList(List<Integer> authorIds, Integer bookId) {
