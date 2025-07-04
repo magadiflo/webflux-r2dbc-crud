@@ -1,6 +1,7 @@
 package dev.magadiflo.r2dbc.app.advice;
 
 import dev.magadiflo.r2dbc.app.exception.AuthorNotFoundException;
+import dev.magadiflo.r2dbc.app.exception.BookNotFoundException;
 import dev.magadiflo.r2dbc.app.exception.InvalidInputException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -21,6 +22,14 @@ public class ApplicationExceptionHandler {
     public Mono<ResponseEntity<ProblemDetail>> handleException(AuthorNotFoundException exception) {
         ProblemDetail problemDetail = this.build(HttpStatus.NOT_FOUND, exception, detail -> {
             detail.setTitle("Autor no encontrado");
+        });
+        return Mono.just(ResponseEntity.status(HttpStatus.NOT_FOUND).body(problemDetail));
+    }
+
+    @ExceptionHandler(BookNotFoundException.class)
+    public Mono<ResponseEntity<ProblemDetail>> handleException(BookNotFoundException exception) {
+        ProblemDetail problemDetail = this.build(HttpStatus.NOT_FOUND, exception, detail -> {
+            detail.setTitle("Libro no encontrado");
         });
         return Mono.just(ResponseEntity.status(HttpStatus.NOT_FOUND).body(problemDetail));
     }

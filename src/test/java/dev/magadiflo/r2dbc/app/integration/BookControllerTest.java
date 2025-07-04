@@ -12,6 +12,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.test.StepVerifier;
 
 import java.time.LocalDate;
+import java.util.Objects;
 
 @Slf4j
 @AutoConfigureWebTestClient //Para autoconfigurar WebTestClient
@@ -49,5 +50,34 @@ class BookControllerTest extends AbstractTest {
                 })
                 .expectNextCount(2)
                 .verifyComplete();
+    }
+
+    @Test
+    void getAuthor() {
+        this.client.get()
+                .uri(BOOKS_URI.concat("/{bookId}"), 1)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("Los ríos profundos")
+                .jsonPath("$.publicationDate").isEqualTo(LocalDate.parse("1999-01-15"))
+                .jsonPath("$.onlineAvailability").isEqualTo(true)
+                .jsonPath("$.authorNames.length()").isNotEmpty()
+                .jsonPath("$.authorNames[0]").isEqualTo("Belén Velez")
+                .jsonPath("$.authorNames[1]").isEqualTo("Marco Salvador");
+    }
+
+    @Test
+    void throwsExceptionWhenSearchingForAnAuthorWhoseIdDoesNotExist() {
+        this.client.get()
+                .uri(BOOKS_URI.concat("/{bookId}"), 10)
+                .exchange()
+                .expectStatus().isNotFound()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("Libro no encontrado")
+                .jsonPath("$.status").isEqualTo(404)
+                .jsonPath("$.detail").isEqualTo("El libro [id=10] no fue encontrado");
     }
 }
