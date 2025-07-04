@@ -5,14 +5,14 @@ import dev.magadiflo.r2dbc.app.proyection.BookProjection;
 import dev.magadiflo.r2dbc.app.service.BookService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+
+import java.time.LocalDate;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -30,6 +30,15 @@ public class BookController {
     @GetMapping(path = "/{bookId}")
     public Mono<ResponseEntity<BookProjection>> getBook(@PathVariable Integer bookId) {
         return this.bookService.findBookById(bookId)
+                .map(ResponseEntity::ok);
+    }
+
+    @GetMapping(path = "/paginated")
+    public Mono<ResponseEntity<Page<BookProjection>>> getPaginatedBooks(@RequestParam(required = false) LocalDate publicationDate,
+                                                                        @RequestParam(required = false, defaultValue = "") String query,
+                                                                        @RequestParam(required = false, defaultValue = "0") int pageNumber,
+                                                                        @RequestParam(required = false, defaultValue = "5") int pageSize) {
+        return this.bookService.findBooksWithAuthorsByCriteria(query, publicationDate, pageNumber, pageSize)
                 .map(ResponseEntity::ok);
     }
 }

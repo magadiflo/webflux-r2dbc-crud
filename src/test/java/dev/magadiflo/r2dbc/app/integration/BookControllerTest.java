@@ -69,7 +69,7 @@ class BookControllerTest extends AbstractTest {
     }
 
     @Test
-    void throwsExceptionWhenSearchingForAnAuthorWhoseIdDoesNotExist() {
+    void throwsExceptionWhenSearchingForAnBookWhoseIdDoesNotExist() {
         this.client.get()
                 .uri(BOOKS_URI.concat("/{bookId}"), 10)
                 .exchange()
@@ -80,4 +80,73 @@ class BookControllerTest extends AbstractTest {
                 .jsonPath("$.status").isEqualTo(404)
                 .jsonPath("$.detail").isEqualTo("El libro [id=10] no fue encontrado");
     }
+
+    @Test
+    void getPaginatedBooks() {
+        this.client.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path(BOOKS_URI.concat("/paginated"))
+                        .queryParam("pageNumber", 0)
+                        .queryParam("pageSize", 2)
+                        .build()
+                )
+                .accept(MediaType.APPLICATION_JSON)
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.content").isArray()
+                .jsonPath("$.content.length()").isEqualTo(2)
+                .jsonPath("$.number").isEqualTo(0)
+                .jsonPath("$.size").isEqualTo(2)
+                .jsonPath("$.totalElements").isEqualTo(4);
+    }
+
+    @Test
+    void getPaginatedBooksWithAuthors() {
+        this.client.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path(BOOKS_URI.concat("/paginated"))
+                        .queryParam("query", "ro")
+                        .queryParam("pageNumber", 0)
+                        .queryParam("pageSize", 5)
+                        .build()
+                )
+                .accept(MediaType.APPLICATION_JSON)
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.content").isArray()
+                .jsonPath("$.content.length()").isEqualTo(3)
+                .jsonPath("$.number").isEqualTo(0)
+                .jsonPath("$.size").isEqualTo(5)
+                .jsonPath("$.totalElements").isEqualTo(3);
+    }
+
+    @Test
+    void getPaginatedBooksWithoutAuthors() {
+        this.client.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path(BOOKS_URI.concat("/paginated"))
+                        .queryParam("publicationDate", LocalDate.parse("1988-07-15"))
+                        .queryParam("pageNumber", 0)
+                        .queryParam("pageSize", 5)
+                        .build()
+                )
+                .accept(MediaType.APPLICATION_JSON)
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.content").isArray()
+                .jsonPath("$.content.length()").isEqualTo(1)
+                .jsonPath("$.number").isEqualTo(0)
+                .jsonPath("$.size").isEqualTo(5)
+                .jsonPath("$.totalElements").isEqualTo(1);
+    }
+
 }
