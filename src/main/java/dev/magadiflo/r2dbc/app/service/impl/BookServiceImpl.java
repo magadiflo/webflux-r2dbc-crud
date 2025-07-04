@@ -4,6 +4,7 @@ import dev.magadiflo.r2dbc.app.dao.BookAuthorDao;
 import dev.magadiflo.r2dbc.app.dto.BookCriteria;
 import dev.magadiflo.r2dbc.app.dto.BookRequest;
 import dev.magadiflo.r2dbc.app.dto.BookResponse;
+import dev.magadiflo.r2dbc.app.dto.BookUpdateRequest;
 import dev.magadiflo.r2dbc.app.entity.BookAuthor;
 import dev.magadiflo.r2dbc.app.exception.ApplicationExceptions;
 import dev.magadiflo.r2dbc.app.mapper.BookMapper;
@@ -80,7 +81,16 @@ public class BookServiceImpl implements BookService {
 
     @Override
     @Transactional
-    public Mono<BookProjection> updateBook(Integer bookId, BookRequest bookRequest) {
+    public Mono<BookProjection> updateBook(Integer bookId, BookUpdateRequest bookUpdateRequest) {
+        return this.bookRepository.findById(bookId)
+                .map(book -> this.bookMapper.toBookUpdate(book, bookUpdateRequest))
+                .flatMap(this.bookRepository::save)
+                .flatMap(savedBook -> this.bookAuthorDao.findBookWithTheirAuthorsByBookId(bookId))
+                .switchIfEmpty(ApplicationExceptions.bookNotFound(bookId));
+    }
+
+    @Override
+    public Mono<BookProjection> updateBookAuthors(Integer bookId, List<Integer> authorIds) {
         return null;
     }
 

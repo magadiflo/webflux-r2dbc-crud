@@ -1,6 +1,7 @@
 package dev.magadiflo.r2dbc.app.integration;
 
 import dev.magadiflo.r2dbc.app.dto.BookRequest;
+import dev.magadiflo.r2dbc.app.dto.BookUpdateRequest;
 import dev.magadiflo.r2dbc.app.exception.AuthorIdsNotFoundException;
 import dev.magadiflo.r2dbc.app.exception.AuthorNotFoundException;
 import dev.magadiflo.r2dbc.app.exception.BookNotFoundException;
@@ -164,7 +165,29 @@ class BookServiceImplTest extends AbstractTest {
     }
 
     @Test
-    void updateBook() {
+    void givenExistingBook_whenUpdate_thenReturnUpdatedProjection() {
+        this.bookService.updateBook(3, new BookUpdateRequest("Kafka", LocalDate.now(), true))
+                .doOnNext(bookProjection -> log.info("{}", bookProjection))
+                .as(StepVerifier::create)
+                .assertNext(bookProjection -> {
+                    Assertions.assertEquals("Kafka", bookProjection.title());
+                    Assertions.assertEquals(LocalDate.now(), bookProjection.publicationDate());
+                    Assertions.assertTrue(bookProjection.onlineAvailability());
+                    Assertions.assertNull(bookProjection.authors());
+                    Assertions.assertTrue(bookProjection.authorNames().isEmpty());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void givenNonExistingBookId_whenUpdate_thenThrowError() {
+        this.bookService.updateBook(5, new BookUpdateRequest("Kafka", LocalDate.now(), true))
+                .as(StepVerifier::create)
+                .expectErrorSatisfies(throwable -> {
+                    Assertions.assertEquals(BookNotFoundException.class, throwable.getClass());
+                    Assertions.assertEquals("El libro [id=5] no fue encontrado", throwable.getMessage());
+                })
+                .verify();
     }
 
     @Test
