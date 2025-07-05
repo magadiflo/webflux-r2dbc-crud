@@ -1,11 +1,14 @@
 package dev.magadiflo.r2dbc.app.controller;
 
+import dev.magadiflo.r2dbc.app.dto.BookRequest;
 import dev.magadiflo.r2dbc.app.dto.BookResponse;
 import dev.magadiflo.r2dbc.app.proyection.BookProjection;
 import dev.magadiflo.r2dbc.app.service.BookService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -40,5 +43,12 @@ public class BookController {
                                                                         @RequestParam(required = false, defaultValue = "5") int pageSize) {
         return this.bookService.findBooksWithAuthorsByCriteria(query, publicationDate, pageNumber, pageSize)
                 .map(ResponseEntity::ok);
+    }
+
+    @PostMapping
+    public Mono<ResponseEntity<BookProjection>> saveBook(@Valid @RequestBody Mono<BookRequest> bookRequestMono) {
+        return bookRequestMono
+                .flatMap(this.bookService::saveBook)
+                .map(bookProjection -> ResponseEntity.status(HttpStatus.CREATED).body(bookProjection));
     }
 }
