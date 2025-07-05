@@ -1,5 +1,6 @@
 package dev.magadiflo.r2dbc.app.integration;
 
+import dev.magadiflo.r2dbc.app.dto.BookRequest;
 import dev.magadiflo.r2dbc.app.dto.BookResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Assertions;
@@ -12,6 +13,8 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.test.StepVerifier;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 @Slf4j
@@ -149,4 +152,62 @@ class BookControllerTest extends AbstractTest {
                 .jsonPath("$.totalElements").isEqualTo(1);
     }
 
+    @Test
+    void givenValidBookRequest_whenSaveBook_thenReturnsCreatedBookProjection() {
+        BookRequest bookRequest = new BookRequest("Kubernetes", LocalDate.now(), null, List.of(2, 4));
+        this.client.post()
+                .uri(BOOKS_URI)
+                .bodyValue(bookRequest)
+                .exchange()
+                .expectStatus().isCreated()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("Kubernetes")
+                .jsonPath("$.publicationDate").isEqualTo(LocalDate.now())
+                .jsonPath("$.onlineAvailability").isEqualTo(false)
+                .jsonPath("$.authorNames.length()").isNotEmpty()
+                .jsonPath("$.authorNames[0]").isEqualTo("Marco Salvador")
+                .jsonPath("$.authorNames[1]").isEqualTo("Luis Sánchez");
+    }
+
+    @Test
+    void givenInvalidBookRequest_whenSaveBook_thenReturnsValidationErrors() {
+        List<Integer> authorIds = new ArrayList<>();
+        authorIds.add(1);
+        authorIds.add(null);
+        authorIds.add(4);
+        BookRequest bookRequest = new BookRequest(" ", null, false, authorIds);
+        this.client.post()
+                .uri(BOOKS_URI)
+                .bodyValue(bookRequest)
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("El cuerpo de la petición contiene valores no válidos")
+                .jsonPath("$.status").isEqualTo(400)
+                .jsonPath("$.detail").isEqualTo("Validation failure")
+                .jsonPath("$.errors['authorIds[1]']").isArray()
+                .jsonPath("$.errors['authorIds[1]'][0]").isEqualTo("must not be null")
+                .jsonPath("$.errors.title").isArray()
+                .jsonPath("$.errors.title[0]").exists()
+                .jsonPath("$.errors.title[1]").isNotEmpty()
+                .jsonPath("$.errors.publicationDate").isArray()
+                .jsonPath("$.errors.publicationDate[0]").isEqualTo("must not be null");
+    }
+
+    @Test
+    void givenBookRequestWithNonExistingAuthors_whenSaveBook_thenThrowsAuthorIdsNotFoundException() {
+        BookRequest bookRequest = new BookRequest("Kubernetes", LocalDate.now(), true, List.of(2, 10, 4));
+        this.client.post()
+                .uri(BOOKS_URI)
+                .bodyValue(bookRequest)
+                .exchange()
+                .expectStatus().isNotFound()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("Autor no encontrado")
+                .jsonPath("$.status").isEqualTo(404)
+                .jsonPath("$.detail").isEqualTo("Algunos IDs de autores no existen en el sistema");
+    }
 }
