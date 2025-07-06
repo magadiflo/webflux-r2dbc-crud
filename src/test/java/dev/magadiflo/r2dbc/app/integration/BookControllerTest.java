@@ -264,4 +264,18 @@ class BookControllerTest extends AbstractTest {
                 .jsonPath("$.title").isEqualTo("Error de formato de la petición")
                 .jsonPath("$.status").isEqualTo(400);
     }
+
+    @Test
+    void givenNonExistingBookId_whenUpdateBook_thenReturnsNotFound() {
+        BookUpdateRequest bookUpdateRequest = new BookUpdateRequest("Spring WebFlux", LocalDate.now(), false);
+        this.client.put()
+                .uri(BOOKS_URI.concat("/{bookId}"), 10)
+                .bodyValue(bookUpdateRequest)
+                .exchange()
+                .expectStatus().isNotFound()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("Libro no encontrado")
+                .jsonPath("$.status").isEqualTo(404);
+    }
 }
