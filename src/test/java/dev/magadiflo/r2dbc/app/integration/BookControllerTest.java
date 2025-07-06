@@ -2,6 +2,7 @@ package dev.magadiflo.r2dbc.app.integration;
 
 import dev.magadiflo.r2dbc.app.dto.BookRequest;
 import dev.magadiflo.r2dbc.app.dto.BookResponse;
+import dev.magadiflo.r2dbc.app.dto.BookUpdateRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -209,5 +210,23 @@ class BookControllerTest extends AbstractTest {
                 .jsonPath("$.title").isEqualTo("Autor no encontrado")
                 .jsonPath("$.status").isEqualTo(404)
                 .jsonPath("$.detail").isEqualTo("Algunos IDs de autores no existen en el sistema");
+    }
+
+    @Test
+    void givenValidBookRequest_whenUpdateBook_thenReturnsUpdatedBookProjection() {
+        BookUpdateRequest bookUpdateRequest = new BookUpdateRequest("Spring WebFlux", LocalDate.now(), false);
+        this.client.put()
+                .uri(BOOKS_URI.concat("/{bookId}"), 1)
+                .bodyValue(bookUpdateRequest)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("Spring WebFlux")
+                .jsonPath("$.publicationDate").isEqualTo(LocalDate.now())
+                .jsonPath("$.onlineAvailability").isEqualTo(false)
+                .jsonPath("$.authorNames").isArray()
+                .jsonPath("$.authorNames[0]").isEqualTo("Belén Velez")
+                .jsonPath("$.authorNames[1]").isEqualTo("Marco Salvador");
     }
 }

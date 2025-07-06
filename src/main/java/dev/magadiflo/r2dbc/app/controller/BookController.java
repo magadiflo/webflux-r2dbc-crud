@@ -2,6 +2,7 @@ package dev.magadiflo.r2dbc.app.controller;
 
 import dev.magadiflo.r2dbc.app.dto.BookRequest;
 import dev.magadiflo.r2dbc.app.dto.BookResponse;
+import dev.magadiflo.r2dbc.app.dto.BookUpdateRequest;
 import dev.magadiflo.r2dbc.app.proyection.BookProjection;
 import dev.magadiflo.r2dbc.app.service.BookService;
 import jakarta.validation.Valid;
@@ -50,5 +51,13 @@ public class BookController {
         return bookRequestMono
                 .flatMap(this.bookService::saveBook)
                 .map(bookProjection -> ResponseEntity.status(HttpStatus.CREATED).body(bookProjection));
+    }
+
+    @PutMapping(path = "/{bookId}")
+    public Mono<ResponseEntity<BookProjection>> updateBook(@PathVariable Integer bookId,
+                                                           @Valid @RequestBody Mono<BookUpdateRequest> bookUpdateRequestMono) {
+        return bookUpdateRequestMono
+                .flatMap(bookUpdateRequest -> this.bookService.updateBook(bookId, bookUpdateRequest))
+                .map(ResponseEntity::ok);
     }
 }
