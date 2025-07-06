@@ -44,7 +44,7 @@ public class ApplicationExceptionHandler {
     @ExceptionHandler(ServerWebInputException.class)
     public Mono<ResponseEntity<ProblemDetail>> handleDecodingException(ServerWebInputException exception) {
         ProblemDetail problemDetail = this.build(HttpStatus.BAD_REQUEST, exception, detail -> {
-            detail.setTitle("Error de formato en el cuerpo de la petición");
+            detail.setTitle("Error de formato de la petición");
             log.info("{}", exception.getMostSpecificCause().getMessage());
         });
         return Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail));

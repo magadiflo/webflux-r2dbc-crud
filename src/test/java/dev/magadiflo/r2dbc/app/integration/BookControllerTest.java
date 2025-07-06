@@ -229,4 +229,39 @@ class BookControllerTest extends AbstractTest {
                 .jsonPath("$.authorNames[0]").isEqualTo("Belén Velez")
                 .jsonPath("$.authorNames[1]").isEqualTo("Marco Salvador");
     }
+
+    @Test
+    void givenInvalidBookRequest_whenUpdateBook_thenReturnsValidationErrors() {
+        BookUpdateRequest bookUpdateRequest = new BookUpdateRequest("", null, null);
+        this.client.put()
+                .uri(BOOKS_URI.concat("/{bookId}"), 1)
+                .bodyValue(bookUpdateRequest)
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("El cuerpo de la petición contiene valores no válidos")
+                .jsonPath("$.detail").isEqualTo("Validation failure")
+                .jsonPath("$.status").isEqualTo(400)
+                .jsonPath("$.errors.title").isArray()
+                .jsonPath("$.errors.title.length()").isEqualTo(2)
+                .jsonPath("$.errors.publicationDate").isArray()
+                .jsonPath("$.errors.publicationDate.length()").isEqualTo(1)
+                .jsonPath("$.errors.onlineAvailability").isArray()
+                .jsonPath("$.errors.onlineAvailability.length()").isEqualTo(1);
+    }
+
+    @Test
+    void givenNonIntegerBookId_whenUpdateBook_thenReturnsBadRequest() {
+        BookUpdateRequest bookUpdateRequest = new BookUpdateRequest("Spring WebFlux", LocalDate.now(), false);
+        this.client.put()
+                .uri(BOOKS_URI.concat("/{bookId}"), "abc")
+                .bodyValue(bookUpdateRequest)
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("Error de formato de la petición")
+                .jsonPath("$.status").isEqualTo(400);
+    }
 }
