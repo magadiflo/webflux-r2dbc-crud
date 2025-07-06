@@ -1,5 +1,6 @@
 package dev.magadiflo.r2dbc.app.controller;
 
+import dev.magadiflo.r2dbc.app.dto.BookAuthorUpdateRequest;
 import dev.magadiflo.r2dbc.app.dto.BookRequest;
 import dev.magadiflo.r2dbc.app.dto.BookResponse;
 import dev.magadiflo.r2dbc.app.dto.BookUpdateRequest;
@@ -58,6 +59,14 @@ public class BookController {
                                                            @Valid @RequestBody Mono<BookUpdateRequest> bookUpdateRequestMono) {
         return bookUpdateRequestMono
                 .flatMap(bookUpdateRequest -> this.bookService.updateBook(bookId, bookUpdateRequest))
+                .map(ResponseEntity::ok);
+    }
+
+    @PatchMapping(path = "/{bookId}/authors")
+    public Mono<ResponseEntity<BookProjection>> updateBookAuthors(@PathVariable Integer bookId,
+                                                                  @Valid @RequestBody Mono<BookAuthorUpdateRequest> authorUpdateRequestMono) {
+        return authorUpdateRequestMono
+                .flatMap(authorUpdateRequest -> this.bookService.updateBookAuthors(bookId, authorUpdateRequest.authorIds()))
                 .map(ResponseEntity::ok);
     }
 }

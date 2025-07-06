@@ -1,5 +1,6 @@
 package dev.magadiflo.r2dbc.app.integration;
 
+import dev.magadiflo.r2dbc.app.dto.BookAuthorUpdateRequest;
 import dev.magadiflo.r2dbc.app.dto.BookRequest;
 import dev.magadiflo.r2dbc.app.dto.BookResponse;
 import dev.magadiflo.r2dbc.app.dto.BookUpdateRequest;
@@ -277,5 +278,59 @@ class BookControllerTest extends AbstractTest {
                 .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
                 .jsonPath("$.title").isEqualTo("Libro no encontrado")
                 .jsonPath("$.status").isEqualTo(404);
+    }
+
+    @Test
+    void givenValidAuthorIds_whenUpdateBookAuthors_thenReturnsUpdatedBookProjection() {
+        var request = new BookAuthorUpdateRequest(List.of(1, 2, 3));
+        this.client.patch()
+                .uri(BOOKS_URI.concat("/{bookId}/authors"), 1)
+                .bodyValue(request)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("Los ríos profundos")
+                .jsonPath("$.publicationDate").isEqualTo(LocalDate.parse("1999-01-15"))
+                .jsonPath("$.onlineAvailability").isEqualTo(true)
+                .jsonPath("$.authorNames").isArray()
+                .jsonPath("$.authorNames[0]").isEqualTo("Belén Velez")
+                .jsonPath("$.authorNames[1]").isEqualTo("Marco Salvador")
+                .jsonPath("$.authorNames[2]").isEqualTo("Greys Briones");
+    }
+
+    @Test
+    void givenNonExistingBookId_whenUpdateBookAuthors_thenReturnsNotFound() {
+        var request = new BookAuthorUpdateRequest(List.of(1, 2, 3));
+        this.client.patch()
+                .uri(BOOKS_URI.concat("/{bookId}/authors"), 10)
+                .bodyValue(request)
+                .exchange()
+                .expectStatus().isNotFound()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("Libro no encontrado")
+                .jsonPath("$.status").isEqualTo(404);
+    }
+
+    @Test
+    void givenNullAuthorIdInList_whenUpdateBookAuthors_thenReturnsValidationErrors() {
+        List<Integer> authorIds = new ArrayList<>();
+        authorIds.add(1);
+        authorIds.add(null);
+        authorIds.add(4);
+        var request = new BookAuthorUpdateRequest(authorIds);
+        this.client.patch()
+                .uri(BOOKS_URI.concat("/{bookId}/authors"), 1)
+                .bodyValue(request)
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("El cuerpo de la petición contiene valores no válidos")
+                .jsonPath("$.status").isEqualTo(400)
+                .jsonPath("$.detail").isEqualTo("Validation failure")
+                .jsonPath("$.errors['authorIds[1]']").isArray()
+                .jsonPath("$.errors['authorIds[1]'][0]").isEqualTo("must not be null");
     }
 }
