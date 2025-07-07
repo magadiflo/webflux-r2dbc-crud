@@ -333,4 +333,25 @@ class BookControllerTest extends AbstractTest {
                 .jsonPath("$.errors['authorIds[1]']").isArray()
                 .jsonPath("$.errors['authorIds[1]'][0]").isEqualTo("must not be null");
     }
+
+    @Test
+    void givenExistingBookId_whenDeleteBook_thenReturnsNoContent() {
+        this.client.delete()
+                .uri(BOOKS_URI.concat("/{bookId}"), 1)
+                .exchange()
+                .expectStatus().isNoContent()
+                .expectBody().isEmpty();
+    }
+
+    @Test
+    void givenNonExistingBookId_whenDeleteBook_thenReturnsNotFound() {
+        this.client.delete()
+                .uri(BOOKS_URI.concat("/{bookId}"), 5)
+                .exchange()
+                .expectStatus().isNotFound()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("Libro no encontrado")
+                .jsonPath("$.status").isEqualTo(404);
+    }
 }

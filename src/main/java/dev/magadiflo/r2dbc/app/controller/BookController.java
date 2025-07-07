@@ -69,4 +69,11 @@ public class BookController {
                 .flatMap(authorUpdateRequest -> this.bookService.updateBookAuthors(bookId, authorUpdateRequest.authorIds()))
                 .map(ResponseEntity::ok);
     }
+
+    @DeleteMapping(path = "/{bookId}")
+    public Mono<ResponseEntity<Void>> deleteBook(@PathVariable Integer bookId) {
+        return this.bookService.deleteBook(bookId)
+                .thenReturn(ResponseEntity.noContent().build());
+
+    }
 }
