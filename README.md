@@ -2264,6 +2264,11 @@ public abstract class AbstractTest {
 }
 ````
 
+**Nota**
+> En esta documentación solo se incluyen las pruebas relacionadas con `Book` y `BookAuthor`.
+> Las pruebas correspondientes a `Author` no se muestran aquí, ya que siguen una lógica similar.
+> Si se desea revisarlas, se pueden consultar directamente en el código fuente del proyecto.
+
 ## 🧪 AuthorRepositoryTest
 
 Esta clase contiene pruebas de integración para el componente `AuthorRepository`, donde se verifica que los métodos
@@ -2759,5 +2764,631 @@ class BookAuthorDaoImplTest extends AbstractTest {
                 .verifyComplete();
     }
 
+}
+````
+
+## 🧪 `BookServiceImplTest`
+
+Esta clase contiene pruebas de integración que validan el comportamiento de alto nivel del servicio `BookService`, el
+cual encapsula la lógica de negocio relacionada con la gestión de libros y sus autores. Las pruebas verifican:
+
+- Lógica de persistencia (guardar, actualizar, eliminar).
+- Validación de reglas de negocio (autores inexistentes, libros no encontrados).
+- Integración con DAO, repositorios y relaciones Book <-> Author.
+
+### ✅ Anotaciones explicadas
+
+| Anotación              | Propósito                                                                                                                                                                           |
+|------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `@Slf4j`               | Proporciona un `log` para imprimir mensajes de depuración (`log.info(...)`).                                                                                                        |
+| `@SpringBootTest`      | Carga **el contexto completo de la aplicación** (servicios, repositorios, DAOs, configuración de base de datos, etc.). <br>Se usa cuando se necesita probar múltiples capas juntas. |
+| `@Autowired`           | Inyecta el bean `BookService` real desde el contexto de Spring para usarlo en las pruebas.                                                                                          |
+| `extends AbstractTest` | Permite que cada test se ejecute con datos predefinidos, cargados desde archivos SQL (`data.sql`, `reset_test_data.sql`), garantizando un entorno controlado y consistente.         |
+
+````java
+
+@Slf4j
+@SpringBootTest
+class BookServiceImplTest extends AbstractTest {
+
+    @Autowired
+    private BookService bookService;
+
+    @Test
+    void findAllBooks() {
+        this.bookService.findAllBooks()
+                .doOnNext(bookResponse -> log.info("{}", bookResponse))
+                .as(StepVerifier::create)
+                .assertNext(bookResponse -> {
+                    Assertions.assertEquals(1, bookResponse.id());
+                    Assertions.assertEquals("Los ríos profundos", bookResponse.title());
+                    Assertions.assertEquals(LocalDate.parse("1999-01-15"), bookResponse.publicationDate());
+                    Assertions.assertTrue(bookResponse.onlineAvailability());
+                })
+                .assertNext(bookResponse -> Assertions.assertTrue(bookResponse.onlineAvailability()))
+                .assertNext(bookResponse -> Assertions.assertFalse(bookResponse.onlineAvailability()))
+                .expectNextCount(1)
+                .verifyComplete();
+    }
+
+    @Test
+    void findBookById() {
+        this.bookService.findBookById(1)
+                .doOnNext(bookProjection -> log.info("{}", bookProjection))
+                .as(StepVerifier::create)
+                .assertNext(bookProjection -> {
+                    Assertions.assertEquals("Los ríos profundos", bookProjection.title());
+                    Assertions.assertEquals(LocalDate.parse("1999-01-15"), bookProjection.publicationDate());
+                    Assertions.assertTrue(bookProjection.onlineAvailability());
+                    Assertions.assertNotNull(bookProjection.authors());
+                    Assertions.assertFalse(bookProjection.authorNames().isEmpty());
+                    Assertions.assertEquals(2, bookProjection.authorNames().size());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void givenNonExistingBookId_whenDeleting_thenThrowsError() {
+        this.bookService.findBookById(5)
+                .as(StepVerifier::create)
+                .expectErrorSatisfies(throwable -> {
+                    Assertions.assertEquals(BookNotFoundException.class, throwable.getClass());
+                    Assertions.assertEquals("El libro [id=5] no fue encontrado", throwable.getMessage());
+                })
+                .verify();
+    }
+
+    @Test
+    void findBooksWithAuthorsByCriteria_withData() {
+        String query = "ri";
+        int pageNumber = 0;
+        int pageSize = 2;
+
+        Mono<Page<BookProjection>> result = this.bookService.findBooksWithAuthorsByCriteria(query, null, pageNumber, pageSize)
+                .doOnNext(bookProjections -> log.info("{}", bookProjections.getContent()));
+
+        StepVerifier.create(result)
+                .assertNext(page -> {
+                    Assertions.assertNotNull(page);
+                    Assertions.assertEquals(2, page.getContent().size());
+                    Assertions.assertEquals(0, page.getNumber());
+                    Assertions.assertEquals(2, page.getSize());
+                    Assertions.assertEquals(2, page.getTotalElements());
+                    Assertions.assertTrue(page.isFirst());
+                    Assertions.assertTrue(page.isLast());
+
+                    BookProjection firstBookProjection = page.getContent().get(0);
+                    Assertions.assertNotNull(firstBookProjection.title());
+                    Assertions.assertNotNull(firstBookProjection.publicationDate());
+                    Assertions.assertFalse(firstBookProjection.onlineAvailability());
+                    Assertions.assertNull(firstBookProjection.authors());
+                    Assertions.assertTrue(firstBookProjection.authorNames().isEmpty());
+
+                    BookProjection secondBookProjection = page.getContent().get(1);
+                    Assertions.assertNotNull(secondBookProjection.title());
+                    Assertions.assertNotNull(secondBookProjection.publicationDate());
+                    Assertions.assertTrue(secondBookProjection.onlineAvailability());
+                    Assertions.assertNotNull(secondBookProjection.authors());
+                    Assertions.assertFalse(secondBookProjection.authorNames().isEmpty());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void findBooksWithAuthorsByCriteria_withoutData() {
+        int pageNumber = 0;
+        int pageSize = 2;
+
+        Mono<Page<BookProjection>> result = this.bookService.findBooksWithAuthorsByCriteria(" ", LocalDate.now(), pageNumber, pageSize);
+
+        StepVerifier.create(result)
+                .assertNext(page -> {
+                    Assertions.assertTrue(page.getContent().isEmpty());
+                    Assertions.assertEquals(0, page.getTotalElements());
+                    Assertions.assertTrue(page.isFirst());
+                    Assertions.assertTrue(page.isLast());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void givenValidBookRequestWithAuthors_whenSave_thenReturnBookProjection() {
+        this.bookService.saveBook(new BookRequest("Spring WebFlux", LocalDate.now(), true, List.of(2, 3, 4)))
+                .doOnNext(bookProjection -> log.info("{}", bookProjection))
+                .as(StepVerifier::create)
+                .assertNext(bookProjection -> {
+                    Assertions.assertNotNull(bookProjection.title());
+                    Assertions.assertNotNull(bookProjection.publicationDate());
+                    Assertions.assertTrue(bookProjection.onlineAvailability());
+                    Assertions.assertNotNull(bookProjection.authors());
+                    Assertions.assertEquals(3, bookProjection.authorNames().size());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void givenBookRequestWithoutAuthors_whenSave_thenReturnBookProjection() {
+        this.bookService.saveBook(new BookRequest("Spring WebFlux", LocalDate.now(), true, null))
+                .doOnNext(bookProjection -> log.info("{}", bookProjection))
+                .as(StepVerifier::create)
+                .assertNext(bookProjection -> {
+                    Assertions.assertNotNull(bookProjection.title());
+                    Assertions.assertNotNull(bookProjection.publicationDate());
+                    Assertions.assertTrue(bookProjection.onlineAvailability());
+                    Assertions.assertNull(bookProjection.authors());
+                    Assertions.assertTrue(bookProjection.authorNames().isEmpty());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void givenBookRequestWithNonExistingAuthor_whenSave_thenThrowError() {
+        this.bookService.saveBook(new BookRequest("Spring WebFlux", LocalDate.now(), true, List.of(2, 4, 10)))
+                .as(StepVerifier::create)
+                .expectErrorSatisfies(throwable -> {
+                    Assertions.assertEquals(AuthorIdsNotFoundException.class, throwable.getClass());
+                    Assertions.assertEquals("Algunos IDs de autores no existen en el sistema", throwable.getMessage());
+                })
+                .verify();
+    }
+
+    @Test
+    void givenExistingBook_whenUpdate_thenReturnUpdatedProjection() {
+        this.bookService.updateBook(3, new BookUpdateRequest("Kafka", LocalDate.now(), true))
+                .doOnNext(bookProjection -> log.info("{}", bookProjection))
+                .as(StepVerifier::create)
+                .assertNext(bookProjection -> {
+                    Assertions.assertEquals("Kafka", bookProjection.title());
+                    Assertions.assertEquals(LocalDate.now(), bookProjection.publicationDate());
+                    Assertions.assertTrue(bookProjection.onlineAvailability());
+                    Assertions.assertNull(bookProjection.authors());
+                    Assertions.assertTrue(bookProjection.authorNames().isEmpty());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void givenNonExistingBookId_whenUpdate_thenThrowError() {
+        this.bookService.updateBook(5, new BookUpdateRequest("Kafka", LocalDate.now(), true))
+                .as(StepVerifier::create)
+                .expectErrorSatisfies(throwable -> {
+                    Assertions.assertEquals(BookNotFoundException.class, throwable.getClass());
+                    Assertions.assertEquals("El libro [id=5] no fue encontrado", throwable.getMessage());
+                })
+                .verify();
+    }
+
+    @Test
+    void givenNonExistingBookId_whenUpdateAuthors_thenThrowError() {
+        this.bookService.updateBookAuthors(5, List.of())
+                .as(StepVerifier::create)
+                .expectErrorSatisfies(throwable -> {
+                    Assertions.assertEquals(BookNotFoundException.class, throwable.getClass());
+                    Assertions.assertEquals("El libro [id=5] no fue encontrado", throwable.getMessage());
+                })
+                .verify();
+    }
+
+    @Test
+    void givenBookIdAndEmptyAuthors_whenUpdateAuthors_thenRemoveAllRelations() {
+        this.bookService.updateBookAuthors(1, List.of())
+                .doOnNext(bookProjection -> log.info("{}", bookProjection))
+                .as(StepVerifier::create)
+                .assertNext(bookProjection -> {
+                    Assertions.assertNotNull(bookProjection.title());
+                    Assertions.assertNotNull(bookProjection.publicationDate());
+                    Assertions.assertTrue(bookProjection.onlineAvailability());
+                    Assertions.assertNull(bookProjection.authors());
+                    Assertions.assertTrue(bookProjection.authorNames().isEmpty());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void givenBookIdAndValidAuthors_whenUpdateAuthors_thenUpdateRelations() {
+        this.bookService.updateBookAuthors(1, List.of(3, 4, 2))
+                .doOnNext(bookProjection -> log.info("{}", bookProjection))
+                .as(StepVerifier::create)
+                .assertNext(bookProjection -> {
+                    Assertions.assertNotNull(bookProjection.title());
+                    Assertions.assertNotNull(bookProjection.publicationDate());
+                    Assertions.assertTrue(bookProjection.onlineAvailability());
+                    Assertions.assertNotNull(bookProjection.authors());
+                    Assertions.assertEquals(3, bookProjection.authorNames().size());
+                })
+                .verifyComplete();
+    }
+
+
+    @Test
+    void givenBookIdAndNonExistingAuthors_whenUpdateAuthors_thenThrowError() {
+        this.bookService.updateBookAuthors(1, List.of(3, 4, 2, 5))
+                .as(StepVerifier::create)
+                .expectErrorSatisfies(throwable -> {
+                    Assertions.assertEquals(AuthorIdsNotFoundException.class, throwable.getClass());
+                    Assertions.assertEquals("Algunos IDs de autores no existen en el sistema", throwable.getMessage());
+                })
+                .verify();
+    }
+
+    @Test
+    void deleteBookWithoutAssociatedAuthors() {
+        this.bookService.deleteBook(3)
+                .as(StepVerifier::create)
+                .verifyComplete();
+    }
+
+    @Test
+    void deleteBookWithAssociatedBooks() {
+        this.bookService.deleteBook(1)
+                .as(StepVerifier::create)
+                .verifyComplete();
+    }
+
+    @Test
+    void throwErrorWhenDeleteBookWithIdThatDoesNotExist() {
+        this.bookService.deleteBook(5)
+                .as(StepVerifier::create)
+                .expectErrorSatisfies(throwable -> {
+                    Assertions.assertEquals(BookNotFoundException.class, throwable.getClass());
+                    Assertions.assertEquals("El libro [id=5] no fue encontrado", throwable.getMessage());
+                })
+                .verify();
+    }
+}
+````
+
+## 🧪 `BookControllerTest`
+
+Esta clase contiene pruebas de integración del controlador HTTP que expone la API REST para la gestión de libros.
+Valida el comportamiento completo del endpoint `/api/v1/books`, incluyendo validaciones, errores, paginación,
+persistencia y respuestas.
+
+### ✅ Anotaciones explicadas
+
+| Anotación                     | Propósito                                                                                                               |
+|-------------------------------|-------------------------------------------------------------------------------------------------------------------------|
+| `@Slf4j`                      | Proporciona un logger `log` para depurar respuestas y errores (`log.info(...)`).                                        |
+| `@SpringBootTest`             | Carga todo el contexto de Spring Boot, ideal para pruebas que necesitan controladores, servicios y repositorios reales. |
+| `@AutoConfigureWebTestClient` | Activa y configura automáticamente un `WebTestClient` para probar endpoints de forma no bloqueante (reactiva).          |
+| `extends AbstractTest`        | Prepara datos iniciales consistentes desde SQL, asegurando que todas las pruebas se ejecuten en un estado controlado.   |
+
+````java
+
+@Slf4j
+@AutoConfigureWebTestClient //Para autoconfigurar WebTestClient
+@SpringBootTest
+class BookControllerTest extends AbstractTest {
+
+    private static final String BOOKS_URI = "/api/v1/books";
+
+    @Autowired
+    private WebTestClient client;
+
+    @Test
+    void getBooks() {
+        this.client.get()
+                .uri(BOOKS_URI.concat("/stream"))
+                .accept(MediaType.TEXT_EVENT_STREAM)
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM)
+                .returnResult(BookResponse.class)
+                .getResponseBody()
+                .doOnNext(bookResponse -> log.info("{}", bookResponse))
+                .as(StepVerifier::create)
+                .assertNext(bookResponse -> {
+                    Assertions.assertEquals(1, bookResponse.id());
+                    Assertions.assertEquals("Los ríos profundos", bookResponse.title());
+                    Assertions.assertEquals(LocalDate.parse("1999-01-15"), bookResponse.publicationDate());
+                    Assertions.assertTrue(bookResponse.onlineAvailability());
+                })
+                .assertNext(bookResponse -> {
+                    Assertions.assertEquals(2, bookResponse.id());
+                    Assertions.assertEquals("La ciudad y los perros", bookResponse.title());
+                    Assertions.assertEquals(LocalDate.parse("1985-03-18"), bookResponse.publicationDate());
+                    Assertions.assertTrue(bookResponse.onlineAvailability());
+                })
+                .expectNextCount(2)
+                .verifyComplete();
+    }
+
+    @Test
+    void getAuthor() {
+        this.client.get()
+                .uri(BOOKS_URI.concat("/{bookId}"), 1)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("Los ríos profundos")
+                .jsonPath("$.publicationDate").isEqualTo(LocalDate.parse("1999-01-15"))
+                .jsonPath("$.onlineAvailability").isEqualTo(true)
+                .jsonPath("$.authorNames.length()").isNotEmpty()
+                .jsonPath("$.authorNames[0]").isEqualTo("Belén Velez")
+                .jsonPath("$.authorNames[1]").isEqualTo("Marco Salvador");
+    }
+
+    @Test
+    void throwsExceptionWhenSearchingForAnBookWhoseIdDoesNotExist() {
+        this.client.get()
+                .uri(BOOKS_URI.concat("/{bookId}"), 10)
+                .exchange()
+                .expectStatus().isNotFound()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("Libro no encontrado")
+                .jsonPath("$.status").isEqualTo(404)
+                .jsonPath("$.detail").isEqualTo("El libro [id=10] no fue encontrado");
+    }
+
+    @Test
+    void getPaginatedBooks() {
+        this.client.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path(BOOKS_URI.concat("/paginated"))
+                        .queryParam("pageNumber", 0)
+                        .queryParam("pageSize", 2)
+                        .build()
+                )
+                .accept(MediaType.APPLICATION_JSON)
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.content").isArray()
+                .jsonPath("$.content.length()").isEqualTo(2)
+                .jsonPath("$.number").isEqualTo(0)
+                .jsonPath("$.size").isEqualTo(2)
+                .jsonPath("$.totalElements").isEqualTo(4);
+    }
+
+    @Test
+    void getPaginatedBooksWithAuthors() {
+        this.client.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path(BOOKS_URI.concat("/paginated"))
+                        .queryParam("query", "ro")
+                        .queryParam("pageNumber", 0)
+                        .queryParam("pageSize", 5)
+                        .build()
+                )
+                .accept(MediaType.APPLICATION_JSON)
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.content").isArray()
+                .jsonPath("$.content.length()").isEqualTo(3)
+                .jsonPath("$.number").isEqualTo(0)
+                .jsonPath("$.size").isEqualTo(5)
+                .jsonPath("$.totalElements").isEqualTo(3);
+    }
+
+    @Test
+    void getPaginatedBooksWithoutAuthors() {
+        this.client.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path(BOOKS_URI.concat("/paginated"))
+                        .queryParam("publicationDate", LocalDate.parse("1988-07-15"))
+                        .queryParam("pageNumber", 0)
+                        .queryParam("pageSize", 5)
+                        .build()
+                )
+                .accept(MediaType.APPLICATION_JSON)
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.content").isArray()
+                .jsonPath("$.content.length()").isEqualTo(1)
+                .jsonPath("$.number").isEqualTo(0)
+                .jsonPath("$.size").isEqualTo(5)
+                .jsonPath("$.totalElements").isEqualTo(1);
+    }
+
+    @Test
+    void givenValidBookRequest_whenSaveBook_thenReturnsCreatedBookProjection() {
+        BookRequest bookRequest = new BookRequest("Kubernetes", LocalDate.now(), null, List.of(2, 4));
+        this.client.post()
+                .uri(BOOKS_URI)
+                .bodyValue(bookRequest)
+                .exchange()
+                .expectStatus().isCreated()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("Kubernetes")
+                .jsonPath("$.publicationDate").isEqualTo(LocalDate.now())
+                .jsonPath("$.onlineAvailability").isEqualTo(false)
+                .jsonPath("$.authorNames.length()").isNotEmpty()
+                .jsonPath("$.authorNames[0]").isEqualTo("Marco Salvador")
+                .jsonPath("$.authorNames[1]").isEqualTo("Luis Sánchez");
+    }
+
+    @Test
+    void givenInvalidBookRequest_whenSaveBook_thenReturnsValidationErrors() {
+        List<Integer> authorIds = new ArrayList<>();
+        authorIds.add(1);
+        authorIds.add(null);
+        authorIds.add(4);
+        BookRequest bookRequest = new BookRequest(" ", null, false, authorIds);
+        this.client.post()
+                .uri(BOOKS_URI)
+                .bodyValue(bookRequest)
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("El cuerpo de la petición contiene valores no válidos")
+                .jsonPath("$.status").isEqualTo(400)
+                .jsonPath("$.detail").isEqualTo("Validation failure")
+                .jsonPath("$.errors['authorIds[1]']").isArray()
+                .jsonPath("$.errors['authorIds[1]'][0]").isEqualTo("must not be null")
+                .jsonPath("$.errors.title").isArray()
+                .jsonPath("$.errors.title[0]").exists()
+                .jsonPath("$.errors.title[1]").isNotEmpty()
+                .jsonPath("$.errors.publicationDate").isArray()
+                .jsonPath("$.errors.publicationDate[0]").isEqualTo("must not be null");
+    }
+
+    @Test
+    void givenBookRequestWithNonExistingAuthors_whenSaveBook_thenThrowsAuthorIdsNotFoundException() {
+        BookRequest bookRequest = new BookRequest("Kubernetes", LocalDate.now(), true, List.of(2, 10, 4));
+        this.client.post()
+                .uri(BOOKS_URI)
+                .bodyValue(bookRequest)
+                .exchange()
+                .expectStatus().isNotFound()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("Autor no encontrado")
+                .jsonPath("$.status").isEqualTo(404)
+                .jsonPath("$.detail").isEqualTo("Algunos IDs de autores no existen en el sistema");
+    }
+
+    @Test
+    void givenValidBookRequest_whenUpdateBook_thenReturnsUpdatedBookProjection() {
+        BookUpdateRequest bookUpdateRequest = new BookUpdateRequest("Spring WebFlux", LocalDate.now(), false);
+        this.client.put()
+                .uri(BOOKS_URI.concat("/{bookId}"), 1)
+                .bodyValue(bookUpdateRequest)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("Spring WebFlux")
+                .jsonPath("$.publicationDate").isEqualTo(LocalDate.now())
+                .jsonPath("$.onlineAvailability").isEqualTo(false)
+                .jsonPath("$.authorNames").isArray()
+                .jsonPath("$.authorNames[0]").isEqualTo("Belén Velez")
+                .jsonPath("$.authorNames[1]").isEqualTo("Marco Salvador");
+    }
+
+    @Test
+    void givenInvalidBookRequest_whenUpdateBook_thenReturnsValidationErrors() {
+        BookUpdateRequest bookUpdateRequest = new BookUpdateRequest("", null, null);
+        this.client.put()
+                .uri(BOOKS_URI.concat("/{bookId}"), 1)
+                .bodyValue(bookUpdateRequest)
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("El cuerpo de la petición contiene valores no válidos")
+                .jsonPath("$.detail").isEqualTo("Validation failure")
+                .jsonPath("$.status").isEqualTo(400)
+                .jsonPath("$.errors.title").isArray()
+                .jsonPath("$.errors.title.length()").isEqualTo(2)
+                .jsonPath("$.errors.publicationDate").isArray()
+                .jsonPath("$.errors.publicationDate.length()").isEqualTo(1)
+                .jsonPath("$.errors.onlineAvailability").isArray()
+                .jsonPath("$.errors.onlineAvailability.length()").isEqualTo(1);
+    }
+
+    @Test
+    void givenNonIntegerBookId_whenUpdateBook_thenReturnsBadRequest() {
+        BookUpdateRequest bookUpdateRequest = new BookUpdateRequest("Spring WebFlux", LocalDate.now(), false);
+        this.client.put()
+                .uri(BOOKS_URI.concat("/{bookId}"), "abc")
+                .bodyValue(bookUpdateRequest)
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("Error de formato de la petición")
+                .jsonPath("$.status").isEqualTo(400);
+    }
+
+    @Test
+    void givenNonExistingBookId_whenUpdateBook_thenReturnsNotFound() {
+        BookUpdateRequest bookUpdateRequest = new BookUpdateRequest("Spring WebFlux", LocalDate.now(), false);
+        this.client.put()
+                .uri(BOOKS_URI.concat("/{bookId}"), 10)
+                .bodyValue(bookUpdateRequest)
+                .exchange()
+                .expectStatus().isNotFound()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("Libro no encontrado")
+                .jsonPath("$.status").isEqualTo(404);
+    }
+
+    @Test
+    void givenValidAuthorIds_whenUpdateBookAuthors_thenReturnsUpdatedBookProjection() {
+        var request = new BookAuthorUpdateRequest(List.of(1, 2, 3));
+        this.client.patch()
+                .uri(BOOKS_URI.concat("/{bookId}/authors"), 1)
+                .bodyValue(request)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("Los ríos profundos")
+                .jsonPath("$.publicationDate").isEqualTo(LocalDate.parse("1999-01-15"))
+                .jsonPath("$.onlineAvailability").isEqualTo(true)
+                .jsonPath("$.authorNames").isArray()
+                .jsonPath("$.authorNames[0]").isEqualTo("Belén Velez")
+                .jsonPath("$.authorNames[1]").isEqualTo("Marco Salvador")
+                .jsonPath("$.authorNames[2]").isEqualTo("Greys Briones");
+    }
+
+    @Test
+    void givenNonExistingBookId_whenUpdateBookAuthors_thenReturnsNotFound() {
+        var request = new BookAuthorUpdateRequest(List.of(1, 2, 3));
+        this.client.patch()
+                .uri(BOOKS_URI.concat("/{bookId}/authors"), 10)
+                .bodyValue(request)
+                .exchange()
+                .expectStatus().isNotFound()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("Libro no encontrado")
+                .jsonPath("$.status").isEqualTo(404);
+    }
+
+    @Test
+    void givenNullAuthorIdInList_whenUpdateBookAuthors_thenReturnsValidationErrors() {
+        List<Integer> authorIds = new ArrayList<>();
+        authorIds.add(1);
+        authorIds.add(null);
+        authorIds.add(4);
+        var request = new BookAuthorUpdateRequest(authorIds);
+        this.client.patch()
+                .uri(BOOKS_URI.concat("/{bookId}/authors"), 1)
+                .bodyValue(request)
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("El cuerpo de la petición contiene valores no válidos")
+                .jsonPath("$.status").isEqualTo(400)
+                .jsonPath("$.detail").isEqualTo("Validation failure")
+                .jsonPath("$.errors['authorIds[1]']").isArray()
+                .jsonPath("$.errors['authorIds[1]'][0]").isEqualTo("must not be null");
+    }
+
+    @Test
+    void givenExistingBookId_whenDeleteBook_thenReturnsNoContent() {
+        this.client.delete()
+                .uri(BOOKS_URI.concat("/{bookId}"), 1)
+                .exchange()
+                .expectStatus().isNoContent()
+                .expectBody().isEmpty();
+    }
+
+    @Test
+    void givenNonExistingBookId_whenDeleteBook_thenReturnsNotFound() {
+        this.client.delete()
+                .uri(BOOKS_URI.concat("/{bookId}"), 5)
+                .exchange()
+                .expectStatus().isNotFound()
+                .expectBody()
+                .consumeWith(result -> log.info("{}", new String(Objects.requireNonNull(result.getResponseBody()))))
+                .jsonPath("$.title").isEqualTo("Libro no encontrado")
+                .jsonPath("$.status").isEqualTo(404);
+    }
 }
 ````
