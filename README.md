@@ -1,7 +1,7 @@
 # [WebFlux R2DBC Crud using PostgreSQL](https://www.youtube.com/watch?v=s6qKE0FD3BU&t=2137s)
 
 - Proyecto tomado del canal de youtube de `Joas Dev`.
-- Este proyecto está actualizado (25/06/2025) con algunos detalles que se vieron en el curso de
+- Este proyecto está actualizado al `25/06/2025` con algunos detalles que se vieron en el curso de
   [java-reactive-programming](https://github.com/magadiflo/java-reactive-programming.git) y de
   [webFlux-masterclass-microservices](https://github.com/magadiflo/webFlux-masterclass-microservices.git).
 
@@ -202,13 +202,34 @@ logging:
     io.r2dbc.postgresql.PARAM: DEBUG
 ````
 
+✨ ¿Qué hace cada línea?
+
+- `logging.level`, define el nivel de detalle de los logs que Spring Boot va a registrar en la consola o en el archivo
+  de logs, por cada paquete o clase.
+- `io.r2dbc.postgresql.QUERY: DEBUG`, este ajuste activa el registro en nivel DEBUG de todas las consultas SQL que se
+  ejecutan a través del driver `R2DBC PostgreSQL`.
+    - Te permite ver qué sentencias SQL se envían a la base de datos de manera reactiva.
+    - Ejemplo de log que verás:
+        ````bash
+        DEBUG 17820 --- io.r2dbc.postgresql.QUERY: Executing query: INSERT INTO authors (first_name, last_name, birthdate) VALUES ($1, $2, $3) RETURNING id
+        ````
+- `io.r2dbc.postgresql.PARAM: DEBUG`, este ajuste muestra en nivel DEBUG los valores de los parámetros que se usan en
+  las consultas preparadas.
+    - Es útil para depurar y saber exactamente qué datos se están pasando en las variables.
+    - Ejemplo de log que verás:
+      ````bash
+      DEBUG 17820 --- io.r2dbc.postgresql.PARAM: Bind parameter [0] to: Ale
+      DEBUG 17820 --- io.r2dbc.postgresql.PARAM: Bind parameter [1] to: Flo
+      DEBUG 17820 --- io.r2dbc.postgresql.PARAM: Bind parameter [2] to: 2025-05-06
+      ````
+
 ## Creando el esquema y datos de nuestra base de datos
 
 Creamos el siguiente directorio `src/main/resources/sql` en nuestro proyecto. Aquí creamos el archivo `scheme.sql`
 donde definimos las tablas `authors`, `books` y su relación de muchos a muchos `book_authors`.
 
 Definimos las instrucciones `DROP TABLE...` al inicio de este script para que la aplicación inicie limpia y siempre
-con los datos iniciales del archivo `data.sql` que crearemos más adelante.
+con los datos iniciales del archivo `data.sql` que crearemos luego.
 
 ````sql
 DROP TABLE IF EXISTS book_authors;
@@ -356,7 +377,7 @@ y poblado correctamente.
 ## Creando entidades: Author, Book y BookAuthor
 
 Creamos las entidades correspondientes a las tablas que definimos en el `scheme.sql`. Es importante recordar que aquí
-estamos trabajando con `R2DBC`, por lo tanto hay que tener algunas consideraciones:
+estamos trabajando con `R2DBC`, por lo tanto, hay que tener algunas consideraciones:
 
 - No tenemos la anotación `@Entity` en `R2DBC`.
 - Las anotaciones `@Table` o `@Column` realmente no son necesarios, pero si necesitamos agregar alguna personalización
@@ -443,7 +464,7 @@ Este diseño:
 
 ### Limitación de R2DBC
 
-`Spring Data R2DBC no soporta claves primarias compuestas` (a diferencia de JPA que tiene @IdClass y @EmbeddedId).
+`Spring Data R2DBC no soporta claves primarias compuestas` (a diferencia de JPA que tiene `@IdClass` y `@EmbeddedId`).
 Por esta razón:
 
 1. No podemos usar `ReactiveCrudRepository` para esta entidad.
@@ -488,6 +509,9 @@ en algunos métodos del repositorio.
 Crearemos la interfaz de proyección `AuthorProjection` que será utilizada en `Spring Data R2DBC` para exponer datos
 de la entidad `Author` de manera optimizada en respuestas JSON, evitando la necesidad de crear un `DTO` separado.
 
+> Para saber más sobre proyecciones ir a este
+> repositorio [spring-data-jpa-projections](https://github.com/magadiflo/spring-data-jpa-projections)
+
 ````java
 
 @JsonPropertyOrder(value = {"firstName", "lastName", "fullName", "birthdate"})
@@ -530,8 +554,6 @@ Con esta anotación:
 > Si en lugar de una interfaz usamos un `record` o una `clase` DTO convencional, no necesitamos esta anotación, ya que
 > en un `record`, el orden de los campos en el JSON coincide con el orden en que se definen los componentes del record.
 > En una clase, Jackson respeta el orden en que declares los atributos.
-
-> Más adelante explicamos en detalle qué es esto de las `proyecciones`.
 
 Ahora, mostramos la creación del repositorio `AuthorRepository` para la entidad `Author`. Algo que vamos a hacer en
 este repositorio es que a pesar de que el `ReactiveCrudRepository` ya viene con métodos predefinidos como el
@@ -577,17 +599,17 @@ public interface AuthorRepository extends ReactiveCrudRepository<Author, Integer
             WHERE a.first_name LIKE :#{'%' + #query + '%'}
                 OR a.last_name LIKE :#{'%' + #query + '%'}
             """)
-    Mono<Integer> findCountByQuery(String query);
+    Mono<Long> findCountByQuery(String query);
 
     @Query("""
-            SELECT a.id, a.first_name, a.last_name, a.birthdate
+            SELECT a.first_name, a.last_name, a.birthdate
             FROM authors AS a
             WHERE a.id = :authorId
             """)
     Mono<AuthorProjection> findAuthorById(Integer authorId);
 
     @Query("""
-            SELECT a.id, a.first_name, a.last_name, a.birthdate
+            SELECT a.first_name, a.last_name, a.birthdate
             FROM authors AS a
             WHERE a.first_name LIKE :#{'%' + #query + '%'}
                 OR a.last_name LIKE :#{'%' + #query + '%'}
@@ -670,373 +692,116 @@ los métodos `findAuthorById` y `findByQuery` estamos usando el concepto de `Pro
 si nuestra tabla tuviera 50 columnas, con projections podemos recuperar solo 5 columnas, no todas, sino las que son
 realmente necesarias.
 
-A continuación, veamos el tema más detalladamente:
-
-### [Projections](https://docs.spring.io/spring-data/jpa/reference/repositories/projections.html)
-
-Los métodos de consulta de Spring Data generalmente devuelven una o varias instancias de la raíz agregada administrada
-por el repositorio. Sin embargo, a veces puede resultar conveniente crear proyecciones basadas en ciertos atributos de
-esos tipos. `Spring Data` permite modelar tipos de retorno dedicados para recuperar de manera más selectiva vistas
-parciales de los agregados administrados.
-
-> Supongamos que tenemos una entidad con múchos atributos, unas 100 por ejemplo (por exagerar). Ahora, imagine que
-> queremos recuperar únicamente 3 atributos ¿cómo lo haríamos?
-
-### Proyecciones basadas en interfaz
-
-La forma más sencilla de limitar el resultado de las consultas solo a los atributos seleccionados es declarando una
-interfaz que exponga los métodos de acceso para que se lean las propiedades, como se muestra en el siguiente ejemplo:
-
-Supongamos que tenemos el siguiente repositorio y su aggregate root:
-
-````java
-class Person {
-    @Id
-    UUID id;
-    String firstname;
-    String lastname;
-    Address address;
-
-    static class Address {
-        String zipCode, city, street;
-    }
-}
-
-interface PersonRepository extends Repository<Person, UUID> {
-    Collection<Person> findByLastname(String lastname);
-}
-````
-
-Ahora, usando **proyecciones basadas en interfaz** definimos únicamente los atributos que queremos recuperar, por
-ejemplo, recuperar únicamente los atributos del nombre de la persona:
-
-````java
-interface NamesOnly {
-    String getFirstname();
-
-    String getLastname();
-}
-````
-
-Lo importante aquí es que las propiedades definidas aquí coinciden exactamente con las propiedades del aggregate root.
-Al hacerlo, se puede agregar un método de consulta de la siguiente manera:
-
-````java
-// Un repositorio que utiliza una proyección basada en interfaz con un método de consulta
-interface PersonRepository extends Repository<Person, UUID> {
-    Collection<NamesOnly> findByLastname(String lastname);
-}
-````
-
-#### Proyecciones cerradas
-
-Una interfaz de proyección cuyos métodos de acceso coinciden con las propiedades del agregado de destino se considera
-una proyección cerrada. El siguiente ejemplo (que también utilizamos anteriormente en este capítulo) es una proyección
-cerrada.
-
-````java
-interface NamesOnly {
-    String getFirstname();
-
-    String getLastname();
-}
-````
-
-#### Proyecciones abiertas
-
-Los métodos de acceso en las interfaces de proyección también se pueden utilizar para calcular nuevos valores mediante
-la anotación @Value, como se muestra en el siguiente ejemplo:
-
-````java
-interface NamesOnly {
-    @Value("#{target.firstname + ' ' + target.lastname}")
-    String getFullName();
-    /*...*/
-}
-````
-
-La raíz agregada que respalda la proyección está disponible en la variable objetivo. Una interfaz de proyección que
-utiliza `@Value` es una `proyección abierta`. Spring Data no puede aplicar optimizaciones de ejecución de consultas en
-este caso, porque la expresión `SpEL` podría usar cualquier atributo de la raíz agregada.
-
-Las expresiones utilizadas en `@Value` no deben ser demasiado complejas; debe evitar la programación en variables de
-cadena. Para expresiones muy simples, una opción podría ser recurrir a métodos predeterminados (introducidos en Java 8),
-como se muestra en el siguiente ejemplo:
-
-````java
-// Una interfaz de proyección que utiliza un método predeterminado para lógica personalizada
-interface NamesOnly {
-
-    String getFirstname();
-
-    String getLastname();
-
-    default String getFullName() {
-        return getFirstname().concat(" ").concat(getLastname());
-    }
-}
-````
-
-## Prueba de Integración a repositorio
-
-Vamos a crear dos archivos en nuestro classpath de `/test` que contendrán las instrucciones sql que ejecutaremos en cada
-método de test de nuestro repositorio.
-
-`src/test/resources/sql/data.sql`
-
-````sql
-INSERT INTO authors(first_name, last_name, birthdate)
-VALUES
-('Belén', 'Velez', '2006-06-15'),
-('Marco', 'Salvador', '1995-06-09'),
-('Greys', 'Briones', '2001-10-03'),
-('Luis', 'Sánchez', '1997-09-25');
-
-INSERT INTO books(title, publication_date, online_availability)
-VALUES
-('Los ríos profundos', '1999-01-15', true),
-('La ciudad y los perros', '1985-03-18', true),
-('El zorro de arriba y el zorro de abajo', '2002-05-06', false),
-('Redoble por Rancas', '1988-07-15', true);
-
--- Book 1: tiene como author a Belén y Marco
-INSERT INTO book_authors(book_id, author_id)
-VALUES
-(1, 1),
-(1, 2);
-
--- Book 2: tiene como author a Greys
-INSERT INTO book_authors(book_id, author_id)
-VALUES
-(2, 3);
-````
-
-`src/test/resources/sql/reset_test_data.sql`
-
-````sql
-TRUNCATE TABLE book_authors RESTART IDENTITY CASCADE;
-TRUNCATE TABLE books RESTART IDENTITY CASCADE;
-TRUNCATE TABLE authors RESTART IDENTITY CASCADE;
-````
-
-La siguiente clase abstracta sirve como `base de configuración` común para los tests que usen `@DataR2dbcTest`,
-facilitando:
-
-- La carga y ejecución de scripts SQL antes de cada test para tener una base de datos en estado limpio.
-- La inyección automática del DatabaseClient para ejecutar directamente sentencias SQL reactivas.
-- Reutilización de lógica para inicializar datos comunes de prueba (`data.sql` y `reset_test_data.sql`).
-
-La anotación `@DataR2dbcTest`:
-
-- Habilita solo los componentes de persistencia reactiva necesarios para probar con `R2DBC`.
-- Configura una base de datos embebida o el `datasource configurado`.
-- Excluye componentes Web, Beans externos, Controllers, etc.
-
-> ✅ Ideal para pruebas de repositorios (`ReactiveCrudRepository`, `R2dbcEntityTemplate`, etc.) de forma rápida y
-> aislada.
-
-La inyección de `DatabaseClient`:
-
-- Permite ejecutar queries SQL de forma reactiva (no bloqueante).
-- Es útil para cargar directamente scripts SQL que no están acoplados a entidades.
-
-````java
-
-@DataR2dbcTest
-public abstract class AbstractTest {
-
-    @Autowired
-    private DatabaseClient databaseClient;
-    private static String dataSQL;
-    private static String resetTestData;
-
-    @BeforeAll
-    static void beforeAll() throws IOException {
-        resetTestData = getSQL(new ClassPathResource("sql/reset_test_data.sql"));
-        dataSQL = getSQL(new ClassPathResource("sql/data.sql"));
-    }
-
-    @BeforeEach
-    void setUp() {
-        this.executeSQL(resetTestData);
-        this.executeSQL(dataSQL);
-    }
-
-    private static String getSQL(ClassPathResource resource) throws IOException {
-        try (InputStream inputStream = resource.getInputStream()) {
-            return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-        }
-    }
-
-    private void executeSQL(String sql) {
-        this.databaseClient.sql(sql)
-                .fetch()
-                .rowsUpdated()
-                .block(); //Aunque se usa block(), está justificado aquí porque estás en una clase de prueba que no necesita mantener la naturaleza reactiva pura.
-    }
-}
-````
-
-La clase `AbstractTest` sirve como clase base para los test de repositorios reactivos con R2DBC. Utiliza la anotación
-`@DataR2dbcTest` para limitar el contexto a los beans de persistencia necesarios, acelerando la ejecución de pruebas.
-
-Antes de todos los tests, se cargan los scripts `reset_test_data.sql` y `data.sql` desde el classpath.
-Luego, antes de cada método de test, se ejecutan estos scripts para garantizar un entorno limpio y reproducible. Esto
-asegura que los tests no dependan del orden de ejecución o del estado de datos compartido.
-
-Finalmente, creamos la clase principal de pruebas para nuestro repositorio `AuthorRepositoryTest`. Esta clase hereda
-las configuraciones que definimos en la clase abstracta anterior. Entonces:
-
-- Hereda la configuración base de `AbstractTest`.
-    - Carga y resetea datos antes de cada test.
-    - Usa un contexto limitado de `@DataR2dbcTest`.
-
-````java
-
-@Slf4j
-class AuthorRepositoryTest extends AbstractTest {
-
-    @Autowired
-    private AuthorRepository authorRepository;
-
-    @Test
-    void findAllAuthors() {
-        this.authorRepository.findAllAuthorsByIdIn(List.of(2, 3))
-                .doOnNext(author -> log.info("{}", author))
-                .as(StepVerifier::create)
-                .assertNext(author -> {
-                    Assertions.assertEquals(2, author.getId());
-                    Assertions.assertEquals("Marco", author.getFirstName());
-                    Assertions.assertEquals("Salvador", author.getLastName());
-                    Assertions.assertEquals(LocalDate.parse("1995-06-09"), author.getBirthdate());
-                })
-                .assertNext(author -> {
-                    Assertions.assertEquals(3, author.getId());
-                    Assertions.assertEquals("Greys", author.getFirstName());
-                    Assertions.assertEquals("Briones", author.getLastName());
-                    Assertions.assertEquals(LocalDate.parse("2001-10-03"), author.getBirthdate());
-                })
-                .verifyComplete();
-    }
-
-    @Test
-    void findAuthorById() {
-        this.authorRepository.findAuthorById(1)
-                .doOnNext(authorProjection -> log.info("{}", authorProjection))
-                .as(StepVerifier::create)
-                .assertNext(authorProjection -> {
-                    Assertions.assertEquals("Belén", authorProjection.getFirstName());
-                    Assertions.assertEquals("Velez", authorProjection.getLastName());
-                    Assertions.assertEquals(LocalDate.parse("2006-06-15"), authorProjection.getBirthdate());
-
-                    // Comprobamos que el método por defecto de la proyección está funcionando
-                    Assertions.assertEquals("Belén Velez", authorProjection.getFullName());
-                })
-                .verifyComplete();
-    }
-
-    @Test
-    void findCountByQuery() {
-        this.authorRepository.findCountByQuery("e")
-                .as(StepVerifier::create)
-                .assertNext(count -> Assertions.assertEquals(3, count))
-                .verifyComplete();
-    }
-
-    @Test
-    void findByQueryAndPageable() {
-        this.authorRepository.findByQuery("e", PageRequest.of(0, 2))
-                .doOnNext(authorProjection -> log.info("{}", authorProjection))
-                .as(StepVerifier::create)
-                .assertNext(authorProjection -> {
-                    Assertions.assertEquals("Belén", authorProjection.getFirstName());
-                    Assertions.assertEquals("Velez", authorProjection.getLastName());
-                    Assertions.assertEquals(LocalDate.parse("2006-06-15"), authorProjection.getBirthdate());
-                    //default method
-                    Assertions.assertEquals("Belén Velez", authorProjection.getFullName());
-                })
-                .assertNext(authorProjection -> {
-                    Assertions.assertEquals("Greys", authorProjection.getFirstName());
-                    Assertions.assertEquals("Briones", authorProjection.getLastName());
-                    Assertions.assertEquals(LocalDate.parse("2001-10-03"), authorProjection.getBirthdate());
-                    //default method
-                    Assertions.assertEquals("Greys Briones", authorProjection.getFullName());
-                })
-                .verifyComplete();
-    }
-
-    @Test
-    void saveAuthor() {
-        Author author = Author.builder()
-                .firstName("Susana")
-                .lastName("Alvarado")
-                .birthdate(LocalDate.parse("2000-11-07"))
-                .build();
-        this.authorRepository.saveAuthor(author)
-                .doOnNext(affectedRows -> log.info("affectedRows: {}", affectedRows))
-                .as(StepVerifier::create)
-                .assertNext(affectedRows -> Assertions.assertEquals(1, affectedRows))
-                .verifyComplete();
-
-        this.authorRepository.count()
-                .as(StepVerifier::create)
-                .expectNext(5L)
-                .verifyComplete();
-
-        this.authorRepository.findById(5)
-                .doOnNext(authorRetrieved -> log.info("{}", authorRetrieved))
-                .as(StepVerifier::create)
-                .assertNext(authorRetrieved -> {
-                    Assertions.assertNotNull(authorRetrieved.getId());
-                    Assertions.assertEquals("Susana", authorRetrieved.getFirstName());
-                    Assertions.assertEquals("Alvarado", authorRetrieved.getLastName());
-                    Assertions.assertEquals(LocalDate.parse("2000-11-07"), authorRetrieved.getBirthdate());
-                })
-                .verifyComplete();
-
-        this.authorRepository.deleteById(5)
-                .then(this.authorRepository.count())
-                .as(StepVerifier::create)
-                .expectNext(4L)
-                .verifyComplete();
-    }
-
-    @Test
-    void updateCustomer() {
-        this.authorRepository.findById(1)
-                .doOnNext(author -> log.info("{}", author))
-                .doOnNext(author -> author.setFirstName("Belencita"))
-                .flatMap(author -> this.authorRepository.updateAuthor(author))
-                .as(StepVerifier::create)
-                .assertNext(affectedRows -> Assertions.assertEquals(1, affectedRows))
-                .verifyComplete();
-
-        this.authorRepository.findById(1)
-                .doOnNext(author -> log.info("{}", author))
-                .as(StepVerifier::create)
-                .assertNext(author -> Assertions.assertEquals("Belencita", author.getFirstName()))
-                .verifyComplete();
-    }
-}
-````
-
-## Creando DTOS
-
-A continuación mostramos los dtos creados usando `record`. Los primeros records creados son para las
-consultas que realizaremos usando `criteria`, es decir consultas que serán elaboradas de manera dinámica.
+## 🧾 DTOs definidos con record
+
+A continuación, se presentan los DTOs creados utilizando la palabra clave `record`. Algunos de ellos incluyen métodos
+adicionales que nos ayudarán más adelante a evitar la duplicación de código y a mejorar la legibilidad en ciertas
+operaciones lógicas.
+
+Iniciamos con el primer record llamado `BookCriteria` quien va a actuar como un `DTO (Data Transfer Object)` que
+encapsula los posibles criterios para realizar búsquedas o filtros relacionados con libros. Es útil, por ejemplo, al
+implementar endpoints de búsqueda dinámica o filtros condicionales en un repositorio.
 
 ````java
 public record BookCriteria(String query, LocalDate publicationDate) {
+    public boolean hasQuery() {
+        return Objects.nonNull(this.query) && !this.query.isBlank();
+    }
+
+    public boolean hasPublicationDate() {
+        return Objects.nonNull(this.publicationDate);
+    }
 }
 ````
 
+El siguiente `DTO (record)` llamado `BookRequest` representa la estructura de datos que se espera recibir al crear un
+libro a través de una solicitud (por ejemplo, en un endpoint REST).
+
+Incluye anotaciones de validación para asegurar la integridad de los datos entrantes, así como un `constructor compacto`
+que transforma el valor de un campo opcional y un método auxiliar que facilita la lógica condicional.
+
 ````java
-public record AuthorCriteria(String firstName, String lastName) {
+public record BookRequest(@NotBlank
+                          @Size(min = 3)
+                          String title,
+                          @NotNull
+                          LocalDate publicationDate,
+                          Boolean onlineAvailability,
+                          List<@NotNull Integer> authorIds) {
+    // Constructor compacto
+    public BookRequest {
+        // El onlineAvailability es opcional. Si es null o false, será falso. Caso contrario será true
+        // De esta manera se garantiza que siempre tenga un valor booleano definido y coherente
+        onlineAvailability = Boolean.TRUE.equals(onlineAvailability);
+    }
+
+    public boolean hasNoAuthorIds() {
+        return Objects.isNull(this.authorIds) || this.authorIds.isEmpty();
+    }
 }
 ````
 
+✅ Consideraciones
+
+- Se aprovechan las validaciones con `Jakarta Bean Validation` directamente en los campos del record.
+- `List<@NotNull Integer> authorIds`, lista de identificadores de autores relacionados con el libro.
+  Cada elemento de la lista es validado con `@NotNull`, lo que impide que haya elementos `nulos` dentro de la colección.
+  Sin embargo, la lista en sí puede ser `null` o `vacía`, según lo definido en la lógica del método auxiliar
+  `hasNoAuthorIds()`. Lo que no es válido es que algún elemento individual dentro de la lista sea `null`.
+- El constructor compacto permite aplicar lógica limpia sin necesidad de crear una clase mutable.
+- Se mantiene el código conciso, inmutable y seguro para su uso en entornos reactivos.
+
+El siguiente `DTO` `BookUpdateRequest` representa la estructura de datos necesaria para actualizar la información de
+un libro existente.
+
+A diferencia de otros `DTOs` de entrada como `BookRequest`, todos los campos en `BookUpdateRequest` son obligatorios,
+lo cual asegura que la operación de actualización sea completa y no parcial.
+
+Se utilizan anotaciones de validación para garantizar que:
+
+- El título sea válido y tenga una longitud mínima.
+- La fecha de publicación y el estado de disponibilidad estén presentes.
+
+Este de `DTO` será utilizado en operaciones `PUT`.
+
 ````java
-public record AuthorFilter(String query) {
+public record BookUpdateRequest(@NotBlank
+                                @Size(min = 3)
+                                String title,
+                                @NotNull
+                                LocalDate publicationDate,
+                                @NotNull
+                                Boolean onlineAvailability) {
+}
+````
+
+El siguiente `DTO` `BookAuthorUpdateRequest` representa la estructura esperada para actualizar la lista de autores
+asociados a un libro.
+
+Contiene un único campo: una lista de identificadores de autores (`authorIds`), en la cual cada elemento debe ser no
+nulo, gracias a la anotación `@NotNull` aplicada sobre los elementos de la lista.
+
+> ⚠️ Importante:
+>
+> La lista en sí (`authorIds`) puede ser `null` o `vacía` si así lo permite la lógica de negocio. Sin embargo, ningún
+> elemento individual de la lista puede ser `null`, lo cual garantiza que los valores enviados sean identificadores
+> válidos.
+
+Este `DTO` es útil cuando se quiere actualizar solo los autores relacionados con un libro, manteniendo separados los
+cambios estructurales (como título o fecha) de los cambios relacionales.
+
+````java
+public record BookAuthorUpdateRequest(List<@NotNull Integer> authorIds) {
+}
+````
+
+A continuación se mostrarán otros `DTOs` creados para la aplicación.
+
+````java
+public record BookResponse(Integer id,
+                           String title,
+                           LocalDate publicationDate,
+                           Boolean onlineAvailability) {
 }
 ````
 
@@ -1048,10 +813,15 @@ public record AuthorRequest(String firstName,
 ````
 
 ````java
-public record BookRequest(String title,
-                          LocalDate publicationDate,
-                          Boolean onlineAvailability,
-                          List<Integer> authorIds) {
+public record AuthorResponse(Integer id,
+                             String firstName,
+                             String lastName,
+                             LocalDate birthdate) {
+}
+````
+
+````java
+public record AuthorCriteria(String firstName, String lastName) {
 }
 ````
 
@@ -1319,3 +1089,252 @@ $ curl -v http://localhost:8080/api/v1/authors/stream | jq
 - `JPA + Hibernate`: la restricción de solo lectura la hace Hibernate en la sesión.
 - No todas las bases de datos se comportan igual.
 - Siempre es buena práctica declarar la intención con `readOnly = true`.
+
+---
+
+# Pruebas de Integración
+
+---
+
+## Prueba de Integración a repositorio
+
+Vamos a crear dos archivos en nuestro classpath de `/test` que contendrán las instrucciones sql que ejecutaremos en cada
+método de test de nuestro repositorio.
+
+`src/test/resources/sql/data.sql`
+
+````sql
+INSERT INTO authors(first_name, last_name, birthdate)
+VALUES
+('Belén', 'Velez', '2006-06-15'),
+('Marco', 'Salvador', '1995-06-09'),
+('Greys', 'Briones', '2001-10-03'),
+('Luis', 'Sánchez', '1997-09-25');
+
+INSERT INTO books(title, publication_date, online_availability)
+VALUES
+('Los ríos profundos', '1999-01-15', true),
+('La ciudad y los perros', '1985-03-18', true),
+('El zorro de arriba y el zorro de abajo', '2002-05-06', false),
+('Redoble por Rancas', '1988-07-15', true);
+
+-- Book 1: tiene como author a Belén y Marco
+INSERT INTO book_authors(book_id, author_id)
+VALUES
+(1, 1),
+(1, 2);
+
+-- Book 2: tiene como author a Greys
+INSERT INTO book_authors(book_id, author_id)
+VALUES
+(2, 3);
+````
+
+`src/test/resources/sql/reset_test_data.sql`
+
+````sql
+TRUNCATE TABLE book_authors RESTART IDENTITY CASCADE;
+TRUNCATE TABLE books RESTART IDENTITY CASCADE;
+TRUNCATE TABLE authors RESTART IDENTITY CASCADE;
+````
+
+La siguiente clase abstracta sirve como `base de configuración` común para los tests que usen `@DataR2dbcTest`,
+facilitando:
+
+- La carga y ejecución de scripts SQL antes de cada test para tener una base de datos en estado limpio.
+- La inyección automática del DatabaseClient para ejecutar directamente sentencias SQL reactivas.
+- Reutilización de lógica para inicializar datos comunes de prueba (`data.sql` y `reset_test_data.sql`).
+
+La anotación `@DataR2dbcTest`:
+
+- Habilita solo los componentes de persistencia reactiva necesarios para probar con `R2DBC`.
+- Configura una base de datos embebida o el `datasource configurado`.
+- Excluye componentes Web, Beans externos, Controllers, etc.
+
+> ✅ Ideal para pruebas de repositorios (`ReactiveCrudRepository`, `R2dbcEntityTemplate`, etc.) de forma rápida y
+> aislada.
+
+La inyección de `DatabaseClient`:
+
+- Permite ejecutar queries SQL de forma reactiva (no bloqueante).
+- Es útil para cargar directamente scripts SQL que no están acoplados a entidades.
+
+````java
+
+@DataR2dbcTest
+public abstract class AbstractTest {
+
+    @Autowired
+    private DatabaseClient databaseClient;
+    private static String dataSQL;
+    private static String resetTestData;
+
+    @BeforeAll
+    static void beforeAll() throws IOException {
+        resetTestData = getSQL(new ClassPathResource("sql/reset_test_data.sql"));
+        dataSQL = getSQL(new ClassPathResource("sql/data.sql"));
+    }
+
+    @BeforeEach
+    void setUp() {
+        this.executeSQL(resetTestData);
+        this.executeSQL(dataSQL);
+    }
+
+    private static String getSQL(ClassPathResource resource) throws IOException {
+        try (InputStream inputStream = resource.getInputStream()) {
+            return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
+    private void executeSQL(String sql) {
+        this.databaseClient.sql(sql)
+                .fetch()
+                .rowsUpdated()
+                .block(); //Aunque se usa block(), está justificado aquí porque estás en una clase de prueba que no necesita mantener la naturaleza reactiva pura.
+    }
+}
+````
+
+La clase `AbstractTest` sirve como clase base para los test de repositorios reactivos con R2DBC. Utiliza la anotación
+`@DataR2dbcTest` para limitar el contexto a los beans de persistencia necesarios, acelerando la ejecución de pruebas.
+
+Antes de todos los tests, se cargan los scripts `reset_test_data.sql` y `data.sql` desde el classpath.
+Luego, antes de cada método de test, se ejecutan estos scripts para garantizar un entorno limpio y reproducible. Esto
+asegura que los tests no dependan del orden de ejecución o del estado de datos compartido.
+
+Finalmente, creamos la clase principal de pruebas para nuestro repositorio `AuthorRepositoryTest`. Esta clase hereda
+las configuraciones que definimos en la clase abstracta anterior. Entonces:
+
+- Hereda la configuración base de `AbstractTest`.
+    - Carga y resetea datos antes de cada test.
+    - Usa un contexto limitado de `@DataR2dbcTest`.
+
+````java
+
+@Slf4j
+class AuthorRepositoryTest extends AbstractTest {
+
+    @Autowired
+    private AuthorRepository authorRepository;
+
+    @Test
+    void findAllAuthors() {
+        this.authorRepository.findAllAuthorsByIdIn(List.of(2, 3))
+                .doOnNext(author -> log.info("{}", author))
+                .as(StepVerifier::create)
+                .assertNext(author -> {
+                    Assertions.assertEquals(2, author.getId());
+                    Assertions.assertEquals("Marco", author.getFirstName());
+                    Assertions.assertEquals("Salvador", author.getLastName());
+                    Assertions.assertEquals(LocalDate.parse("1995-06-09"), author.getBirthdate());
+                })
+                .assertNext(author -> {
+                    Assertions.assertEquals(3, author.getId());
+                    Assertions.assertEquals("Greys", author.getFirstName());
+                    Assertions.assertEquals("Briones", author.getLastName());
+                    Assertions.assertEquals(LocalDate.parse("2001-10-03"), author.getBirthdate());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void findAuthorById() {
+        this.authorRepository.findAuthorById(1)
+                .doOnNext(authorProjection -> log.info("{}", authorProjection))
+                .as(StepVerifier::create)
+                .assertNext(authorProjection -> {
+                    Assertions.assertEquals("Belén", authorProjection.getFirstName());
+                    Assertions.assertEquals("Velez", authorProjection.getLastName());
+                    Assertions.assertEquals(LocalDate.parse("2006-06-15"), authorProjection.getBirthdate());
+
+                    // Comprobamos que el método por defecto de la proyección está funcionando
+                    Assertions.assertEquals("Belén Velez", authorProjection.getFullName());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void findCountByQuery() {
+        this.authorRepository.findCountByQuery("e")
+                .as(StepVerifier::create)
+                .assertNext(count -> Assertions.assertEquals(3, count))
+                .verifyComplete();
+    }
+
+    @Test
+    void findByQueryAndPageable() {
+        this.authorRepository.findByQuery("e", PageRequest.of(0, 2))
+                .doOnNext(authorProjection -> log.info("{}", authorProjection))
+                .as(StepVerifier::create)
+                .assertNext(authorProjection -> {
+                    Assertions.assertEquals("Belén", authorProjection.getFirstName());
+                    Assertions.assertEquals("Velez", authorProjection.getLastName());
+                    Assertions.assertEquals(LocalDate.parse("2006-06-15"), authorProjection.getBirthdate());
+                    //default method
+                    Assertions.assertEquals("Belén Velez", authorProjection.getFullName());
+                })
+                .assertNext(authorProjection -> {
+                    Assertions.assertEquals("Greys", authorProjection.getFirstName());
+                    Assertions.assertEquals("Briones", authorProjection.getLastName());
+                    Assertions.assertEquals(LocalDate.parse("2001-10-03"), authorProjection.getBirthdate());
+                    //default method
+                    Assertions.assertEquals("Greys Briones", authorProjection.getFullName());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void saveAuthor() {
+        Author author = Author.builder()
+                .firstName("Susana")
+                .lastName("Alvarado")
+                .birthdate(LocalDate.parse("2000-11-07"))
+                .build();
+        this.authorRepository.saveAuthor(author)
+                .doOnNext(affectedRows -> log.info("affectedRows: {}", affectedRows))
+                .as(StepVerifier::create)
+                .assertNext(affectedRows -> Assertions.assertEquals(1, affectedRows))
+                .verifyComplete();
+
+        this.authorRepository.count()
+                .as(StepVerifier::create)
+                .expectNext(5L)
+                .verifyComplete();
+
+        this.authorRepository.findById(5)
+                .doOnNext(authorRetrieved -> log.info("{}", authorRetrieved))
+                .as(StepVerifier::create)
+                .assertNext(authorRetrieved -> {
+                    Assertions.assertNotNull(authorRetrieved.getId());
+                    Assertions.assertEquals("Susana", authorRetrieved.getFirstName());
+                    Assertions.assertEquals("Alvarado", authorRetrieved.getLastName());
+                    Assertions.assertEquals(LocalDate.parse("2000-11-07"), authorRetrieved.getBirthdate());
+                })
+                .verifyComplete();
+
+        this.authorRepository.deleteById(5)
+                .then(this.authorRepository.count())
+                .as(StepVerifier::create)
+                .expectNext(4L)
+                .verifyComplete();
+    }
+
+    @Test
+    void updateCustomer() {
+        this.authorRepository.findById(1)
+                .doOnNext(author -> log.info("{}", author))
+                .doOnNext(author -> author.setFirstName("Belencita"))
+                .flatMap(author -> this.authorRepository.updateAuthor(author))
+                .as(StepVerifier::create)
+                .assertNext(affectedRows -> Assertions.assertEquals(1, affectedRows))
+                .verifyComplete();
+
+        this.authorRepository.findById(1)
+                .doOnNext(author -> log.info("{}", author))
+                .as(StepVerifier::create)
+                .assertNext(author -> Assertions.assertEquals("Belencita", author.getFirstName()))
+                .verifyComplete();
+    }
+}
+````

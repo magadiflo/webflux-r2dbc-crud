@@ -19,6 +19,7 @@ public record BookRequest(@NotBlank
     // Constructor compacto
     public BookRequest {
         // El onlineAvailability es opcional. Si es null o false, será falso. Caso contrario será true
+        // De esta manera se garantiza que siempre tenga un valor booleano definido y coherente
         onlineAvailability = Boolean.TRUE.equals(onlineAvailability);
     }
 
