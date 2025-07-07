@@ -1596,6 +1596,183 @@ public class AuthorServiceImpl implements AuthorService {
 }
 ````
 
+## 📘 Servicio de dominio: `BookService`
+
+La interfaz `BookService` define las operaciones del dominio libro (`Book`) y su relación con autores. Expone
+funcionalidades esenciales como:
+
+- Listado completo y búsqueda por ID.
+- Paginación con criterios de búsqueda.
+- Registro, actualización y eliminación de libros.
+- Mantenimiento de la relación muchos a muchos entre libros y autores.
+
+````java
+public interface BookService {
+    Flux<BookResponse> findAllBooks();
+
+    Mono<BookProjection> findBookById(Integer bookId);
+
+    Mono<Page<BookProjection>> findBooksWithAuthorsByCriteria(String query, LocalDate publicationDate, int pageNumber, int pageSize);
+
+    Mono<BookProjection> saveBook(BookRequest bookRequest);
+
+    Mono<BookProjection> updateBook(Integer bookId, BookUpdateRequest bookUpdateRequest);
+
+    Mono<BookProjection> updateBookAuthors(Integer bookId, List<Integer> authorIds);
+
+    Mono<Void> deleteBook(Integer bookId);
+}
+````
+
+`BookServiceImpl` implementa la lógica de negocio relacionada con los libros, integrando varios componentes como:
+
+- `BookRepository`: acceso principal a la tabla de libros.
+- `AuthorRepository`: para verificar existencia de autores.
+- `BookAuthorDao`: para manipular relaciones libro-autor.
+- `BookMapper`: convierte entre entidades y DTOs.
+
+### 🔍 Comportamientos clave
+
+- `Relaciones libro-autor`: en métodos como `saveBook()` y `updateBookAuthors()`, se valida que los IDs de autores
+  existan antes de registrar la relación en la tabla intermedia `(book_authors`).
+- `Manejo de proyecciones`: se devuelve una proyección personalizada (`BookProjection`) con datos enriquecidos,
+  incluyendo los autores concatenados.
+- `Criterios dinámicos`: en la búsqueda paginada (`findBooksWithAuthorsByCriteria`), se aplican filtros opcionales como
+  título o fecha de publicación usando `BookCriteria`.
+- `Eliminación segura`: antes de eliminar un libro, se verifica y elimina su relación con los autores si corresponde.
+- `Uso de operadores reactivos`: se utiliza `Mono.defer`, `Mono.fromSupplier`, `Mono.zip` y otros patrones para
+  garantizar operaciones no bloqueantes y eficientes.
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@Service
+public class BookServiceImpl implements BookService {
+
+    private final BookRepository bookRepository;
+    private final AuthorRepository authorRepository;
+    private final BookAuthorDao bookAuthorDao;
+    private final BookMapper bookMapper;
+
+    @Override
+    @Transactional(readOnly = true)
+    public Flux<BookResponse> findAllBooks() {
+        return this.bookRepository.findAll()
+                .map(this.bookMapper::toBookResponse);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Mono<BookProjection> findBookById(Integer bookId) {
+        return this.bookAuthorDao.findBookWithTheirAuthorsByBookId(bookId)
+                .switchIfEmpty(ApplicationExceptions.bookNotFound(bookId));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Mono<Page<BookProjection>> findBooksWithAuthorsByCriteria(String query, LocalDate publicationDate, int pageNumber, int pageSize) {
+        Pageable pageable = PageRequest.of(pageNumber, pageSize);
+        BookCriteria bookCriteria = new BookCriteria(query, publicationDate);
+        return Mono.zip(
+                this.bookAuthorDao.findAllToPage(bookCriteria, pageable).collectList(),
+                this.bookAuthorDao.countBookAuthorByCriteria(bookCriteria),
+                (data, total) -> new PageImpl<>(data, pageable, total)
+        );
+    }
+
+    @Override
+    @Transactional
+    public Mono<BookProjection> saveBook(BookRequest bookRequest) {
+        return this.validateAuthors(bookRequest)
+                .then(Mono.fromSupplier(() -> this.bookMapper.toBook(bookRequest)))
+                .flatMap(this.bookRepository::save)
+                .flatMap(savedBook -> {
+                    if (bookRequest.hasNoAuthorIds()) {
+                        return Mono.just(savedBook);
+                    }
+                    List<BookAuthor> relations = this.bookAuthorList(bookRequest.authorIds(), savedBook.getId());
+                    return this.bookAuthorDao.saveAllBookAuthor(relations)
+                            .thenReturn(savedBook);
+                })
+                .flatMap(savedBook -> this.bookAuthorDao.findBookWithTheirAuthorsByBookId(savedBook.getId()));
+    }
+
+    @Override
+    @Transactional
+    public Mono<BookProjection> updateBook(Integer bookId, BookUpdateRequest bookUpdateRequest) {
+        return this.bookRepository.findById(bookId)
+                .map(book -> this.bookMapper.toBookUpdate(book, bookUpdateRequest))
+                .flatMap(this.bookRepository::save)
+                .flatMap(savedBook -> this.bookAuthorDao.findBookWithTheirAuthorsByBookId(bookId))
+                .switchIfEmpty(ApplicationExceptions.bookNotFound(bookId));
+    }
+
+    @Override
+    @Transactional
+    public Mono<BookProjection> updateBookAuthors(Integer bookId, List<Integer> authorIds) {
+        return this.bookRepository.findById(bookId)
+                .switchIfEmpty(ApplicationExceptions.bookNotFound(bookId))
+                .flatMap(book -> {
+                    if (Objects.isNull(authorIds) || authorIds.isEmpty()) {
+                        return this.bookAuthorDao.deleteBookAuthorByBookId(bookId);
+                    }
+                    return this.validateAuthors(authorIds)
+                            .then(this.bookAuthorDao.deleteBookAuthorByBookId(bookId))
+                            .then(Mono.fromSupplier(() -> this.bookAuthorList(authorIds, bookId)))
+                            .flatMap(this.bookAuthorDao::saveAllBookAuthor);
+                })
+                .then(this.bookAuthorDao.findBookWithTheirAuthorsByBookId(bookId));
+    }
+
+    @Override
+    @Transactional
+    public Mono<Void> deleteBook(Integer bookId) {
+        return this.bookRepository.findById(bookId)
+                .switchIfEmpty(ApplicationExceptions.bookNotFound(bookId))
+                .flatMap(book -> this.bookAuthorDao.existBookAuthorByBookId(bookId))
+                .flatMap(hasAuthors -> Boolean.TRUE.equals(hasAuthors) ? this.bookAuthorDao.deleteBookAuthorByBookId(bookId) : Mono.empty())
+                .then(this.bookRepository.deleteById(bookId));
+    }
+
+    // Mono.fromSupplier(...): internamente debes retornar un valor simple (un objeto). El resultado es un Mono que emite ese valor al suscribirse.
+    // Mono.defer(...): internamente debes retornar un Mono. El resultado es exactamente ese Mono retornado (no lo crea hasta que se suscriba).
+    private Mono<Void> validateAuthors(BookRequest bookRequest) {
+        return Mono.defer(() -> {
+            if (bookRequest.hasNoAuthorIds()) {
+                return Mono.empty();
+            }
+            return this.allAuthorIdsExist(bookRequest.authorIds());
+        });
+    }
+
+    private Mono<Void> validateAuthors(List<Integer> authorIds) {
+        return Mono.defer(() -> this.allAuthorIdsExist(authorIds));
+    }
+
+    private Mono<Void> allAuthorIdsExist(List<Integer> authorIds) {
+        return this.authorRepository.findAllAuthorsByIdIn(authorIds)
+                .collectList()
+                .flatMap(authors -> {
+                    if (authorIds.size() != authors.size()) {
+                        return ApplicationExceptions.authorIdsNotFound();
+                    }
+                    return Mono.empty();
+                });
+    }
+
+    private List<BookAuthor> bookAuthorList(List<Integer> authorIds, Integer bookId) {
+        return authorIds.stream()
+                .map(authorId -> BookAuthor.builder()
+                        .bookId(bookId)
+                        .authorId(authorId)
+                        .build()
+                )
+                .toList();
+    }
+}
+````
+
 ## 📄 Anotación `@Transactional` en aplicaciones reactivas con Spring WebFlux y R2DBC
 
 ### 🎯 Objetivo General
