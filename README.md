@@ -1299,6 +1299,89 @@ public interface AuthorMapper {
 }
 ````
 
+## ❌ Manejo centralizado de errores: `ApplicationExceptions`
+
+`ApplicationExceptions` es una clase utilitaria diseñada para centralizar la construcción de errores reactivos
+(`Mono.error`) dentro de la aplicación. Esto permite lanzar excepciones personalizadas de forma consistente y
+reutilizable desde cualquier componente reactivo (servicios, DAOs, validaciones, etc.).
+
+`@NoArgsConstructor(access = AccessLevel.PRIVATE)`
+
+- Genera un constructor privado sin argumentos.
+- Esto impide que se creen instancias de la clase, forzando su uso estático.
+- Refuerza la intención de que esta clase sea solo utilitaria.
+
+````java
+
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
+public class ApplicationExceptions {
+
+    public static <T> Mono<T> authorNotFound(Integer authorId) {
+        return Mono.error(() -> new AuthorNotFoundException(authorId));
+    }
+
+    public static <T> Mono<T> bookNotFound(Integer bookId) {
+        return Mono.error(() -> new BookNotFoundException(bookId));
+    }
+
+    public static <T> Mono<T> authorIdsNotFound() {
+        return Mono.error(AuthorIdsNotFoundException::new);
+    }
+
+    public static <T> Mono<T> missingFirstName() {
+        return Mono.error(() -> new InvalidInputException("El nombre es requerido"));
+    }
+
+    public static <T> Mono<T> missingLastName() {
+        return Mono.error(() -> new InvalidInputException("El apellido es requerido"));
+    }
+
+    public static <T> Mono<T> missingBirthdate() {
+        return Mono.error(() -> new InvalidInputException("La fecha de nacimiento es requerido"));
+    }
+}
+````
+
+A continuación se muestran las distintas clases de excepción que utiliza la clase `ApplicationExceptions`.
+
+````java
+public class AuthorNotFoundException extends RuntimeException {
+
+    private static final String MESSAGE = "El author [id=%d] no fue encontrado";
+
+    public AuthorNotFoundException(Integer authorId) {
+        super(MESSAGE.formatted(authorId));
+    }
+}
+````
+
+````java
+public class BookNotFoundException extends RuntimeException {
+
+    private static final String MESSAGE = "El libro [id=%d] no fue encontrado";
+
+    public BookNotFoundException(Integer authorId) {
+        super(MESSAGE.formatted(authorId));
+    }
+}
+````
+
+````java
+public class AuthorIdsNotFoundException extends RuntimeException {
+    public AuthorIdsNotFoundException() {
+        super("Algunos IDs de autores no existen en el sistema");
+    }
+}
+````
+
+````java
+public class InvalidInputException extends RuntimeException {
+    public InvalidInputException(String message) {
+        super(message);
+    }
+}
+````
+
 ## Creando Servicios
 
 Definimos la interfaz para la entidad `Author`.
