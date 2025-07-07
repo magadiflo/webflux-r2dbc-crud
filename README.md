@@ -1951,6 +1951,217 @@ $ curl -v http://localhost:8080/api/v1/authors/stream | jq
 - No todas las bases de datos se comportan igual.
 - Siempre es buena práctica declarar la intención con `readOnly = true`.
 
+## ✅ Validación manual de peticiones: `RequestValidator`
+
+La clase `RequestValidator` proporciona una forma manual y programática de validar instancias de `AuthorRequest` en el
+flujo reactivo. Está diseñada para ser usada directamente dentro de controladores o servicios, sin necesidad de
+anotaciones como `@Valid` o `@NotNull`.
+
+Este enfoque es útil cuando se desea tener un control más explícito sobre el proceso de validación, especialmente
+cuando se desea encadenar validaciones dentro de un `Mono<T>` o `Flux<T>` antes de ejecutar una lógica de negocio.
+
+### 🧪 ¿Cómo funciona?
+
+- El método `validate()` devuelve una función (`UnaryOperator<Mono<AuthorRequest>>`) que puede aplicarse a un
+  `Mono<AuthorRequest>` para validar sus campos.
+
+- Internamente, esta función:
+    - Verifica que firstName no sea null ni esté vacío.
+    - Verifica que lastName no sea null ni esté vacío.
+    - Verifica que birthdate no sea null.
+
+- Si alguna validación falla, se retorna un `Mono.error(...)` con una excepción personalizada de
+  `ApplicationExceptions`.
+
+````java
+
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
+public class RequestValidator {
+
+    public static UnaryOperator<Mono<AuthorRequest>> validate() {
+        return authorRequestMono -> authorRequestMono
+                .filter(hasFirstName())
+                .switchIfEmpty(ApplicationExceptions.missingFirstName())
+                .filter(hasLastName())
+                .switchIfEmpty(ApplicationExceptions.missingLastName())
+                .filter(hasBirthdate())
+                .switchIfEmpty(ApplicationExceptions.missingBirthdate());
+    }
+
+    private static Predicate<AuthorRequest> hasFirstName() {
+        return authorRequest -> Objects.nonNull(authorRequest.firstName())
+                                && !authorRequest.firstName().trim().isEmpty();
+    }
+
+    private static Predicate<AuthorRequest> hasLastName() {
+        return authorRequest -> Objects.nonNull(authorRequest.lastName())
+                                && !authorRequest.lastName().trim().isEmpty();
+    }
+
+    private static Predicate<AuthorRequest> hasBirthdate() {
+        return authorRequest -> Objects.nonNull(authorRequest.birthdate());
+    }
+}
+````
+
+## 🎯 Controlador para Autores: `AuthorController`
+
+El controlador `AuthorController` expone los endpoints REST para gestionar autores. Está basado en `Spring WebFlux` y
+ofrece soporte completo para operaciones reactivas como consulta, creación, actualización y eliminación de autores.
+
+Una característica distintiva de este controlador es que implementa validación manual de entradas usando la clase
+`RequestValidator`, en lugar de utilizar anotaciones como `@Valid`. Esta estrategia permite tener mayor control sobre
+la lógica de validación y personalizar el flujo de errores en tiempo de ejecución.
+
+### ✋ Validación manual con RequestValidator
+
+Para los métodos `saveAuthor` y `updateAuthor`, el controlador utiliza `.transform(RequestValidator.validate())`. Esto
+permite aplicar un conjunto de validaciones explícitas antes de continuar con la lógica de negocio. Si alguna
+validación falla, se lanza una excepción controlada que será manejada posteriormente por el
+`ApplicationExceptionHandler`.
+
+### 📚 Endpoints expuestos
+
+| Método / Ruta        | Descripción                                                             | 
+|----------------------|-------------------------------------------------------------------------|
+| `GET /stream`        | Devuelve un `Flux<AuthorResponse>` como flujo SSE (`text/event-stream`) |
+| `GET /{authorId}`    | Busca un autor por su ID                                                |
+| `GET /paginated`     | Devuelve una página de autores filtrados por nombre y apellido          |
+| `POST /`             | Crea un nuevo autor luego de validar manualmente los datos recibidos    |
+| `PUT /{authorId}`    | Actualiza un autor existente luego de aplicar validación                |
+| `DELETE /{authorId}` | Elimina un autor si no tiene relación con libros                        |
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/authors")
+public class AuthorController {
+
+    private final AuthorService authorService;
+
+    @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Mono<ResponseEntity<Flux<AuthorResponse>>> getAuthors() {
+        return Mono.fromSupplier(() -> ResponseEntity.ok(this.authorService.findAllAuthors()));
+    }
+
+    @GetMapping(path = "/{authorId}")
+    public Mono<ResponseEntity<AuthorProjection>> getAuthor(@PathVariable Integer authorId) {
+        return this.authorService.findAuthorById(authorId)
+                .map(ResponseEntity::ok);
+    }
+
+    @GetMapping(path = "/paginated")
+    public Mono<ResponseEntity<Page<AuthorProjection>>> getPaginatedAuthors(@RequestParam(required = false, defaultValue = "") String query,
+                                                                            @RequestParam(required = false, defaultValue = "0") int pageNumber,
+                                                                            @RequestParam(required = false, defaultValue = "5") int pageSize) {
+        return this.authorService.getAllAuthorsToPage(query, pageNumber, pageSize)
+                .map(ResponseEntity::ok);
+
+    }
+
+    @PostMapping
+    public Mono<ResponseEntity<Void>> saveAuthor(@RequestBody Mono<AuthorRequest> authorRequestMono) {
+        return authorRequestMono
+                .transform(RequestValidator.validate())
+                .flatMap(this.authorService::saveAuthor)
+                .map(affectedRows -> ResponseEntity.status(HttpStatus.CREATED).build());
+    }
+
+    @PutMapping(path = "/{authorId}")
+    public Mono<ResponseEntity<AuthorProjection>> updateAuthor(@PathVariable Integer authorId,
+                                                               @RequestBody Mono<AuthorRequest> authorRequestMono) {
+        return authorRequestMono
+                .transform(RequestValidator.validate())
+                .flatMap(authorRequest -> this.authorService.updateAuthor(authorId, authorRequest))
+                .map(ResponseEntity::ok);
+    }
+
+    @DeleteMapping(path = "/{authorId}")
+    public Mono<ResponseEntity<Void>> deleteAuthor(@PathVariable Integer authorId) {
+        return this.authorService.deleteAuthor(authorId)
+                .map(wasDeleted -> ResponseEntity.noContent().build());
+    }
+}
+````
+
+## ✅ Validación declarativa con anotaciones: `BookController`
+
+En el `BookController` se aplica la `validación automática` de peticiones usando la anotación `@Valid` junto con
+`Spring Validation`. Este enfoque permite que las clases `BookRequest`, `BookUpdateRequest` y `BookAuthorUpdateRequest`
+sean validadas automáticamente al recibir una solicitud HTTP. Si alguna restricción (como `@NotBlank`, `@Size`,
+`@NotNull`, etc.) no se cumple, se lanza una excepción (`WebExchangeBindException`), la cual es gestionada globalmente
+por el `ApplicationExceptionHandler`.
+
+Gracias a este mecanismo, la lógica del controlador permanece limpia, delegando la validación al motor de
+`Bean Validation` y centralizando el manejo de errores de entrada de forma elegante.
+
+Este patrón es útil para validaciones estructurales o de formato que pueden definirse con anotaciones, y es
+complementario al enfoque manual que usaste en el controlador de Author.
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/books")
+public class BookController {
+
+    private final BookService bookService;
+
+    @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Mono<ResponseEntity<Flux<BookResponse>>> getBooks() {
+        return Mono.fromSupplier(() -> ResponseEntity.ok(this.bookService.findAllBooks()));
+    }
+
+    @GetMapping(path = "/{bookId}")
+    public Mono<ResponseEntity<BookProjection>> getBook(@PathVariable Integer bookId) {
+        return this.bookService.findBookById(bookId)
+                .map(ResponseEntity::ok);
+    }
+
+    @GetMapping(path = "/paginated")
+    public Mono<ResponseEntity<Page<BookProjection>>> getPaginatedBooks(@RequestParam(required = false) LocalDate publicationDate,
+                                                                        @RequestParam(required = false, defaultValue = "") String query,
+                                                                        @RequestParam(required = false, defaultValue = "0") int pageNumber,
+                                                                        @RequestParam(required = false, defaultValue = "5") int pageSize) {
+        return this.bookService.findBooksWithAuthorsByCriteria(query, publicationDate, pageNumber, pageSize)
+                .map(ResponseEntity::ok);
+    }
+
+    @PostMapping
+    public Mono<ResponseEntity<BookProjection>> saveBook(@Valid @RequestBody Mono<BookRequest> bookRequestMono) {
+        return bookRequestMono
+                .flatMap(this.bookService::saveBook)
+                .map(bookProjection -> ResponseEntity.status(HttpStatus.CREATED).body(bookProjection));
+    }
+
+    @PutMapping(path = "/{bookId}")
+    public Mono<ResponseEntity<BookProjection>> updateBook(@PathVariable Integer bookId,
+                                                           @Valid @RequestBody Mono<BookUpdateRequest> bookUpdateRequestMono) {
+        return bookUpdateRequestMono
+                .flatMap(bookUpdateRequest -> this.bookService.updateBook(bookId, bookUpdateRequest))
+                .map(ResponseEntity::ok);
+    }
+
+    @PatchMapping(path = "/{bookId}/authors")
+    public Mono<ResponseEntity<BookProjection>> updateBookAuthors(@PathVariable Integer bookId,
+                                                                  @Valid @RequestBody Mono<BookAuthorUpdateRequest> authorUpdateRequestMono) {
+        return authorUpdateRequestMono
+                .flatMap(authorUpdateRequest -> this.bookService.updateBookAuthors(bookId, authorUpdateRequest.authorIds()))
+                .map(ResponseEntity::ok);
+    }
+
+    @DeleteMapping(path = "/{bookId}")
+    public Mono<ResponseEntity<Void>> deleteBook(@PathVariable Integer bookId) {
+        return this.bookService.deleteBook(bookId)
+                .thenReturn(ResponseEntity.noContent().build());
+
+    }
+}
+````
+
 ---
 
 # Pruebas de Integración
