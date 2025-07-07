@@ -487,27 +487,11 @@ limitaciones actuales de `R2DBC`.
 > Este caso lo podemos ver en el proyecto
 > [webFlux-masterclass-microservices](https://github.com/magadiflo/webFlux-masterclass-microservices/tree/main/projects/webflux-playground/src/main/java/dev/magadiflo/app/sec03/entity)
 
-## Creando repositorios
+## 🧩 Proyección personalizada: `AuthorProjection`
 
-A nuestras entidades `Author` y `Book` les crearemos a cada uno su interfaz de repositorio. Estos repositorios nos
-permitirán interactuar con las tablas de la base de datos `authors` y `books`. Con respecto a la entidad `BookAuthor`,
-esta la manejaremos dentro de una clase `dao` haciendo uso del `DatabaseClient`.
-
-La interfaz `ReactiveCrudRepository` nos permitirá usar sus métodos ya definidos, tales como el `save()`, `findById()`,
-`findAll()`, `count()`, `delete()`, `deleteById()`, `deleteAll()`, etc.`
-
-A continuación se muestra la creación del repositorio `BookRepository` para la entidad `Book`.
-
-````java
-public interface BookRepository extends ReactiveCrudRepository<Book, Integer> {
-}
-````
-
-Antes de crear el repositorio `AuthorRepository` vamos a crear una proyección basada en interfaz que luego la usaremos
-en algunos métodos del repositorio.
-
-Crearemos la interfaz de proyección `AuthorProjection` que será utilizada en `Spring Data R2DBC` para exponer datos
-de la entidad `Author` de manera optimizada en respuestas JSON, evitando la necesidad de crear un `DTO` separado.
+`AuthorProjection` es una `proyección basada en interfaz`, utilizada para representar parcialmente los datos de un
+autor. `Spring Data` permite usar interfaces con solo los getters necesarios, lo que permite consultar solo los campos
+deseados sin cargar toda la entidad.
 
 > Para saber más sobre proyecciones ir a este
 > repositorio [spring-data-jpa-projections](https://github.com/magadiflo/spring-data-jpa-projections)
@@ -555,9 +539,61 @@ Con esta anotación:
 > en un `record`, el orden de los campos en el JSON coincide con el orden en que se definen los componentes del record.
 > En una clase, Jackson respeta el orden en que declares los atributos.
 
-Ahora, mostramos la creación del repositorio `AuthorRepository` para la entidad `Author`. Algo que vamos a hacer en
-este repositorio es que a pesar de que el `ReactiveCrudRepository` ya viene con métodos predefinidos como el
-`save()`, `findBYId()`, etc. en nuestro caso vamos a definir nuestros propios métodos para practicar un poco.
+## 🧩 Proyección personalizada: `BookProjection`
+
+`BookProjection` es una proyección personalizada utilizada para representar la vista combinada de un libro junto con
+sus autores, generalmente como resultado de una consulta `SQL con JOIN` y `STRING_AGG`.
+
+- El campo `authors` contiene una cadena con los nombres de los autores concatenados (por ejemplo: "`Alice Smith`,
+  `Bob Johnson`"), generada por la base de datos.
+- Este campo es interno y se marca con `@JsonIgnore` para que `no se exponga` directamente en la `respuesta JSON`.
+- En su lugar, se expone el método `authorNames()`, anotado con `@JsonProperty`, que transforma esa cadena en una lista
+  de nombres individuales (`List<String>`).
+
+````java
+public record BookProjection(String title,
+                             LocalDate publicationDate,
+                             Boolean onlineAvailability,
+                             @JsonIgnore
+                             String authors) {
+
+    @JsonProperty
+    public List<String> authorNames() {
+        if (Objects.isNull(this.authors) || this.authors.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(this.authors.split(","))
+                .map(String::trim)
+                .toList();
+    }
+}
+````
+
+## Creando repositorios
+
+A nuestras entidades `Author` y `Book` les crearemos a cada uno su interfaz de repositorio. Estos repositorios nos
+permitirán interactuar con las tablas de la base de datos `authors` y `books`. Con respecto a la entidad `BookAuthor`,
+esta la manejaremos dentro de una clase `dao` haciendo uso del `DatabaseClient`.
+
+La interfaz `ReactiveCrudRepository` nos permitirá usar sus métodos ya definidos, tales como el `save()`, `findById()`,
+`findAll()`, `count()`, `delete()`, `deleteById()`, `deleteAll()`, etc.`
+
+A continuación se muestra la creación del repositorio `BookRepository` para la entidad `Book`.
+
+````java
+public interface BookRepository extends ReactiveCrudRepository<Book, Integer> {
+}
+````
+
+Otro repositorio que creamos es `AuthorRepository`. Al igual que otros repositorios en este proyecto, extiende de
+`ReactiveCrudRepository`, lo que significa que ya incluye una serie de métodos predefinidos como `save()`, `findById()`,
+`deleteById()`, entre otros.
+
+> 🧪 Sin embargo, en este caso particular decidimos definir nuestros propios métodos personalizados, con el objetivo de
+> practicar distintas formas de interactuar con la base de datos de manera reactiva.
+>
+> Esto no solo nos permite comprender mejor cómo funciona la capa de acceso a datos, sino que también puede ser útil en
+> escenarios donde se requiera mayor control sobre la consulta o comportamiento específico.
 
 ````java
 public interface AuthorRepository extends ReactiveCrudRepository<Author, Integer> {
