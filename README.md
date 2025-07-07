@@ -2168,7 +2168,7 @@ public class BookController {
 
 ---
 
-## Prueba de Integración a repositorio
+## Definiendo datos iniciales para las pruebas de integración
 
 Vamos a crear dos archivos en nuestro classpath de `/test` que contendrán las instrucciones sql que ejecutaremos en cada
 método de test de nuestro repositorio.
@@ -2210,30 +2210,26 @@ TRUNCATE TABLE books RESTART IDENTITY CASCADE;
 TRUNCATE TABLE authors RESTART IDENTITY CASCADE;
 ````
 
-La siguiente clase abstracta sirve como `base de configuración` común para los tests que usen `@DataR2dbcTest`,
-facilitando:
+## 🧪 Clase base para pruebas de integración: `AbstractTest`
 
-- La carga y ejecución de scripts SQL antes de cada test para tener una base de datos en estado limpio.
-- La inyección automática del DatabaseClient para ejecutar directamente sentencias SQL reactivas.
-- Reutilización de lógica para inicializar datos comunes de prueba (`data.sql` y `reset_test_data.sql`).
+La clase `AbstractTest` sirve como base común para todas las pruebas de integración de la aplicación. Su propósito
+principal es garantizar que cada prueba se ejecute sobre un estado consistente y controlado de la base de datos,
+gracias a la carga previa de scripts SQL.
 
-La anotación `@DataR2dbcTest`:
+✅ Responsabilidades clave:
 
-- Habilita solo los componentes de persistencia reactiva necesarios para probar con `R2DBC`.
-- Configura una base de datos embebida o el `datasource configurado`.
-- Excluye componentes Web, Beans externos, Controllers, etc.
+- `Ejecutar SQL de limpieza` (`reset_test_data.sql`): borra o reinicia el estado de la base de datos antes de cada
+  prueba.
+- `Ejecutar SQL de datos` (`data.sql`): inserta los datos necesarios para que las pruebas se ejecuten correctamente.
+- Usa `DatabaseClient` para ejecutar estos scripts de forma reactiva, pero forzando la ejecución con `.block()` ya que
+  se trata de código de preparación fuera del flujo reactivo de la prueba.
 
-> ✅ Ideal para pruebas de repositorios (`ReactiveCrudRepository`, `R2dbcEntityTemplate`, etc.) de forma rápida y
-> aislada.
+### 📌 Beneficio principal
 
-La inyección de `DatabaseClient`:
-
-- Permite ejecutar queries SQL de forma reactiva (no bloqueante).
-- Es útil para cargar directamente scripts SQL que no están acoplados a entidades.
+Garantiza aislamiento entre pruebas, evita efectos colaterales y promueve repetibilidad, lo cual es esencial en pruebas
+de integración reales que interactúan con una base de datos `PostgreSQL`.
 
 ````java
-
-@DataR2dbcTest
 public abstract class AbstractTest {
 
     @Autowired
@@ -2268,23 +2264,42 @@ public abstract class AbstractTest {
 }
 ````
 
-La clase `AbstractTest` sirve como clase base para los test de repositorios reactivos con R2DBC. Utiliza la anotación
-`@DataR2dbcTest` para limitar el contexto a los beans de persistencia necesarios, acelerando la ejecución de pruebas.
+## 🧪 AuthorRepositoryTest
 
-Antes de todos los tests, se cargan los scripts `reset_test_data.sql` y `data.sql` desde el classpath.
+Esta clase contiene pruebas de integración para el componente `AuthorRepository`, donde se verifica que los métodos
+personalizados funcionen correctamente al interactuar con una base de datos PostgreSQL real. Cada prueba asegura que
+las operaciones como buscar, guardar, actualizar y paginar autores se comporten según lo esperado.
+
+> Dado que todas las pruebas se ejecutan contra una base de datos real (usando datos cargados previamente), hablamos de
+> `pruebas de integración` completas.
+
+### ✅ Anotaciones explicadas
+
+| Anotación              | Descripción                                                                                                                                                                                                                                                                                                        |
+|------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `@Slf4j`               | Anotación de Lombok que genera automáticamente un logger (`log`) para la clase, permitiéndote usar `log.info(...)` sin necesidad de declararlo.                                                                                                                                                                    |
+| `@DataR2dbcTest`       | Anotación de Spring Boot especializada para pruebas con R2DBC. <br>✅ **Carga sólo los beans relacionados a la capa de persistencia** (repositorios, configuración de R2DBC, etc.). <br>❌ **No carga beans de servicios o controladores**, lo cual acelera las pruebas. <br>Ideal para probar `Repository` o `DAO`. |
+| `@Autowired`           | Inyecta automáticamente el `AuthorRepository` configurado por el contexto de prueba cargado por Spring Boot.                                                                                                                                                                                                       |
+| `@Test`                | Marca un método como una prueba unitaria o de integración. Será ejecutado por el motor de pruebas (JUnit en este caso).                                                                                                                                                                                            |
+| `extends AbstractTest` | Heredas el comportamiento de reinicializar la base de datos antes de cada prueba, asegurando un entorno **consistente y limpio** cada vez.                                                                                                                                                                         |
+
+La anotación `@DataR2dbcTest`:
+
+- Habilita solo los componentes de persistencia reactiva necesarios para probar con `R2DBC`.
+- Configura una base de datos embebida o el `datasource configurado`.
+- Excluye componentes Web, Beans externos, Controllers, etc.
+
+> ✅ Ideal para pruebas de repositorios (`ReactiveCrudRepository`, `R2dbcEntityTemplate`, etc.) de forma rápida y
+> aislada.
+
+Antes de que se ejecuten todos los tests, se cargan los scripts `reset_test_data.sql` y `data.sql` desde el classpath.
 Luego, antes de cada método de test, se ejecutan estos scripts para garantizar un entorno limpio y reproducible. Esto
 asegura que los tests no dependan del orden de ejecución o del estado de datos compartido.
-
-Finalmente, creamos la clase principal de pruebas para nuestro repositorio `AuthorRepositoryTest`. Esta clase hereda
-las configuraciones que definimos en la clase abstracta anterior. Entonces:
-
-- Hereda la configuración base de `AbstractTest`.
-    - Carga y resetea datos antes de cada test.
-    - Usa un contexto limitado de `@DataR2dbcTest`.
 
 ````java
 
 @Slf4j
+@DataR2dbcTest
 class AuthorRepositoryTest extends AbstractTest {
 
     @Autowired
@@ -2408,5 +2423,341 @@ class AuthorRepositoryTest extends AbstractTest {
                 .assertNext(author -> Assertions.assertEquals("Belencita", author.getFirstName()))
                 .verifyComplete();
     }
+}
+````
+
+## 🧪 `BookAuthorDaoImplTest`
+
+Esta clase valida el correcto funcionamiento de todos los métodos definidos en la clase `BookAuthorDaoImpl`. Se enfoca
+en
+asegurar que las consultas SQL, inserciones, actualizaciones, eliminaciones y búsquedas por criterios personalizados
+(como `BookCriteria`) se comporten como se espera al interactuar con una base de datos PostgreSQL real.
+
+Estas pruebas son de integración porque:
+
+- Se ejecutan contra una base de datos real (PostgreSQL, inicializada con scripts SQL).
+- Evalúan cómo se comporta el DAO en conjunto con la configuración de R2DBC y la base de datos.
+- Validan el resultado final de una operación completa, no solo el comportamiento de una función aislada.
+
+### ✅ Anotaciones explicadas
+
+| Anotación                          | ¿Para qué sirve?                                                                                                                                                                                                                                                                                                                                |
+|------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `@Slf4j`                           | Anotación de **Lombok** que autogenera el objeto `log`, útil para imprimir información durante las pruebas (debug/log).                                                                                                                                                                                                                         |
+| `@DataR2dbcTest`                   | Anotación de **Spring Boot** que configura un contexto de pruebas limitado **solo a la capa de persistencia reactiva**. <br>Incluye: beans de configuración R2DBC, beans de `DatabaseClient`, repositorios reactivos, etc. <br>Excluye: servicios, controladores, seguridad, etc. Esto hace que el arranque del contexto sea rápido y enfocado. |
+| `@Import(BookAuthorDaoImpl.class)` | Importa manualmente el bean de `BookAuthorDaoImpl`, ya que este no es un `@Repository` estándar ni se detecta automáticamente con `@DataR2dbcTest`. <br>**Sin esta anotación**, Spring no sabría cómo inyectar `BookAuthorDao`.                                                                                                                 |
+| `@Autowired`                       | Inyecta el DAO real (`BookAuthorDaoImpl`) para usarlo dentro de los tests.                                                                                                                                                                                                                                                                      |
+| `extends AbstractTest`             | Hereda de una clase que **reinicializa los datos de prueba** (`data.sql`, `reset_test_data.sql`) antes de cada test, garantizando que todos los tests comienzan desde un estado limpio.                                                                                                                                                         |
+
+````java
+
+@Slf4j
+@Import(BookAuthorDaoImpl.class)
+@DataR2dbcTest
+class BookAuthorDaoImplTest extends AbstractTest {
+
+    @Autowired
+    private BookAuthorDao bookAuthorDao;
+
+    @Test
+    void shouldReturnTotalCountFilteredByQuery() {
+        var criteria = new BookCriteria("ri", null);
+        this.bookAuthorDao.countBookAuthorByCriteria(criteria)
+                .as(StepVerifier::create)
+                .expectNext(2L)
+                .verifyComplete();
+    }
+
+    @Test
+    void shouldReturnTotalCountFilteredByPublicationDate() {
+        var criteria = new BookCriteria("", LocalDate.parse("1988-07-15"));
+        this.bookAuthorDao.countBookAuthorByCriteria(criteria)
+                .as(StepVerifier::create)
+                .expectNext(1L)
+                .verifyComplete();
+    }
+
+    @Test
+    void shouldReturnTotalCountFilteredByQueryAndPublicationDate() {
+        var criteria = new BookCriteria("ciu", LocalDate.parse("1985-03-18"));
+        this.bookAuthorDao.countBookAuthorByCriteria(criteria)
+                .as(StepVerifier::create)
+                .expectNext(1L)
+                .verifyComplete();
+    }
+
+    @Test
+    void shouldReturnTotalCountWithoutFilter() {
+        var criteria = new BookCriteria(" ", null);
+        this.bookAuthorDao.countBookAuthorByCriteria(criteria)
+                .as(StepVerifier::create)
+                .expectNext(4L)
+                .verifyComplete();
+    }
+
+    @Test
+    void saveBookAuthor() {
+        this.bookAuthorDao.saveBookAuthor(new BookAuthor(4, 3))
+                .as(StepVerifier::create)
+                .expectNext(1L)
+                .verifyComplete();
+    }
+
+    @Test
+    void saveBookAuthorExpectError() {
+        this.bookAuthorDao.saveBookAuthor(new BookAuthor(1, 1))
+                .as(StepVerifier::create)
+                .expectError(DuplicateKeyException.class)
+                .verify();
+    }
+
+    @Test
+    void saveAllBookAuthor() {
+        this.bookAuthorDao.saveAllBookAuthor(List.of(
+                        new BookAuthor(3, 1),
+                        new BookAuthor(4, 1),
+                        new BookAuthor(2, 2)
+                ))
+                .as(StepVerifier::create)
+                .verifyComplete();
+    }
+
+    @Test
+    void saveAllBookAuthorExpectError() {
+        this.bookAuthorDao.saveAllBookAuthor(List.of(
+                        new BookAuthor(3, 1),
+                        new BookAuthor(4, 1),
+                        new BookAuthor(1, 1)
+                ))
+                .as(StepVerifier::create)
+                .expectError(DuplicateKeyException.class)
+                .verify();
+    }
+
+    @Test
+    void existBookAuthorByBookId() {
+        this.bookAuthorDao.existBookAuthorByBookId(1)
+                .as(StepVerifier::create)
+                .expectNext(true)
+                .verifyComplete();
+    }
+
+    @Test
+    void notExistBookAuthorByBookId() {
+        this.bookAuthorDao.existBookAuthorByBookId(3)
+                .as(StepVerifier::create)
+                .expectNext(false)
+                .verifyComplete();
+    }
+
+    @Test
+    void existBookAuthorByAuthorId() {
+        this.bookAuthorDao.existBookAuthorByAuthorId(1)
+                .as(StepVerifier::create)
+                .expectNext(true)
+                .verifyComplete();
+    }
+
+    @Test
+    void notExistBookAuthorByAuthorId() {
+        this.bookAuthorDao.existBookAuthorByAuthorId(4)
+                .as(StepVerifier::create)
+                .expectNext(false)
+                .verifyComplete();
+    }
+
+    @Test
+    void deleteBookAuthorByBookId() {
+        // Verificamos que exista por el BookId
+        this.bookAuthorDao.existBookAuthorByBookId(1)
+                .as(StepVerifier::create)
+                .expectNext(true)
+                .verifyComplete();
+
+        // Eliminamos
+        this.bookAuthorDao.deleteBookAuthorByBookId(1)
+                .as(StepVerifier::create)
+                .verifyComplete();
+
+        // Verificamos que ya no existe
+        this.bookAuthorDao.existBookAuthorByBookId(1)
+                .as(StepVerifier::create)
+                .expectNext(false)
+                .verifyComplete();
+    }
+
+    @Test
+    void deleteBookAuthorByBookIdWhenBookIdNotExist() {
+        // Verificamos que no existe
+        this.bookAuthorDao.existBookAuthorByBookId(3)
+                .as(StepVerifier::create)
+                .expectNext(false)
+                .verifyComplete();
+
+        // Eliminamos
+        this.bookAuthorDao.deleteBookAuthorByBookId(3)
+                .as(StepVerifier::create)
+                .verifyComplete();
+    }
+
+    @Test
+    void deleteBookAuthorByAuthorId() {
+        // Verificamos que exista por el AuthorId
+        this.bookAuthorDao.existBookAuthorByAuthorId(1)
+                .as(StepVerifier::create)
+                .expectNext(true)
+                .verifyComplete();
+
+        // Eliminamos
+        this.bookAuthorDao.deleteBookAuthorByAuthorId(1)
+                .as(StepVerifier::create)
+                .verifyComplete();
+
+        // Verificamos que ya no existe
+        this.bookAuthorDao.existBookAuthorByAuthorId(1)
+                .as(StepVerifier::create)
+                .expectNext(false)
+                .verifyComplete();
+    }
+
+    @Test
+    void deleteBookAuthorByBookIdWhenAuthorIdNotExist() {
+        // Verificamos que no existe
+        this.bookAuthorDao.existBookAuthorByAuthorId(4)
+                .as(StepVerifier::create)
+                .expectNext(false)
+                .verifyComplete();
+
+        // Eliminamos
+        this.bookAuthorDao.deleteBookAuthorByAuthorId(4)
+                .as(StepVerifier::create)
+                .verifyComplete();
+    }
+
+    @Test
+    void findBookWithTheirAuthorsByBookId() {
+        this.bookAuthorDao.findBookWithTheirAuthorsByBookId(1)
+                .doOnNext(bookProjection -> log.info("{}", bookProjection))
+                .as(StepVerifier::create)
+                .assertNext(bookProjection -> {
+                    Assertions.assertEquals("Los ríos profundos", bookProjection.title());
+                    Assertions.assertEquals(LocalDate.parse("1999-01-15"), bookProjection.publicationDate());
+                    Assertions.assertTrue(bookProjection.onlineAvailability());
+                    Assertions.assertEquals("Belén Velez, Marco Salvador", bookProjection.authors());
+                    Assertions.assertFalse(bookProjection.authorNames().isEmpty());
+                    Assertions.assertEquals("Belén Velez", bookProjection.authorNames().get(0));
+                    Assertions.assertEquals("Marco Salvador", bookProjection.authorNames().get(1));
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void givenBookWithNoAuthors_whenFindById_thenReturnsBookWithoutAuthors() {
+        this.bookAuthorDao.findBookWithTheirAuthorsByBookId(3)
+                .doOnNext(bookProjection -> log.info("{}", bookProjection))
+                .as(StepVerifier::create)
+                .assertNext(bookProjection -> {
+                    Assertions.assertEquals("El zorro de arriba y el zorro de abajo", bookProjection.title());
+                    Assertions.assertEquals(LocalDate.parse("2002-05-06"), bookProjection.publicationDate());
+                    Assertions.assertFalse(bookProjection.onlineAvailability());
+                    Assertions.assertNull(bookProjection.authors());
+                    Assertions.assertTrue(bookProjection.authorNames().isEmpty());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void givenNonExistingBookId_whenFind_thenOnlyComplete() {
+        this.bookAuthorDao.findBookWithTheirAuthorsByBookId(5)
+                .doOnNext(bookProjection -> log.info("{}", bookProjection))
+                .as(StepVerifier::create)
+                .verifyComplete();
+    }
+
+    @Test
+    void shouldReturnBookProjectionsFilteredByQuery() {
+        var criteria = new BookCriteria("ri", null);
+        Pageable pageable = PageRequest.of(0, 5);
+        this.bookAuthorDao.findAllToPage(criteria, pageable)
+                .doOnNext(bookProjection -> log.info("{}", bookProjection))
+                .as(StepVerifier::create)
+                .assertNext(bookProjection -> {
+                    Assertions.assertEquals("El zorro de arriba y el zorro de abajo", bookProjection.title());
+                    Assertions.assertEquals(LocalDate.parse("2002-05-06"), bookProjection.publicationDate());
+                    Assertions.assertFalse(bookProjection.onlineAvailability());
+                    Assertions.assertNull(bookProjection.authors());
+                    Assertions.assertTrue(bookProjection.authorNames().isEmpty());
+                })
+                .assertNext(bookProjection -> {
+                    Assertions.assertEquals("La ciudad y los perros", bookProjection.title());
+                    Assertions.assertEquals(LocalDate.parse("1985-03-18"), bookProjection.publicationDate());
+                    Assertions.assertTrue(bookProjection.onlineAvailability());
+                    Assertions.assertNotNull(bookProjection.authors());
+                    Assertions.assertFalse(bookProjection.authorNames().isEmpty());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void shouldReturnBookProjectionsFilteredByPublicationDate() {
+        var criteria = new BookCriteria("", LocalDate.parse("1988-07-15"));
+        Pageable pageable = PageRequest.of(0, 5);
+        this.bookAuthorDao.findAllToPage(criteria, pageable)
+                .doOnNext(bookProjection -> log.info("{}", bookProjection))
+                .as(StepVerifier::create)
+                .assertNext(bookProjection -> {
+                    Assertions.assertEquals("Redoble por Rancas", bookProjection.title());
+                    Assertions.assertEquals(LocalDate.parse("1988-07-15"), bookProjection.publicationDate());
+                    Assertions.assertTrue(bookProjection.onlineAvailability());
+                    Assertions.assertNull(bookProjection.authors());
+                    Assertions.assertTrue(bookProjection.authorNames().isEmpty());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void shouldReturnBookProjectionsFilteredByQueryAndPublicationDate() {
+        var criteria = new BookCriteria("ciu", LocalDate.parse("1985-03-18"));
+        Pageable pageable = PageRequest.of(0, 5);
+        this.bookAuthorDao.findAllToPage(criteria, pageable)
+                .doOnNext(bookProjection -> log.info("{}", bookProjection))
+                .as(StepVerifier::create)
+                .assertNext(bookProjection -> {
+                    Assertions.assertEquals("La ciudad y los perros", bookProjection.title());
+                    Assertions.assertEquals(LocalDate.parse("1985-03-18"), bookProjection.publicationDate());
+                    Assertions.assertTrue(bookProjection.onlineAvailability());
+                    Assertions.assertNotNull(bookProjection.authors());
+                    Assertions.assertFalse(bookProjection.authorNames().isEmpty());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void shouldReturnBookProjectionsWithoutFilter() {
+        var criteria = new BookCriteria(" ", null);
+        Pageable pageable = PageRequest.of(0, 5);
+        this.bookAuthorDao.findAllToPage(criteria, pageable)
+                .doOnNext(bookProjection -> log.info("{}", bookProjection))
+                .as(StepVerifier::create)
+                .assertNext(bookProjection -> {
+                    Assertions.assertEquals("El zorro de arriba y el zorro de abajo", bookProjection.title());
+                    Assertions.assertEquals(LocalDate.parse("2002-05-06"), bookProjection.publicationDate());
+                    Assertions.assertFalse(bookProjection.onlineAvailability());
+                    Assertions.assertNull(bookProjection.authors());
+                    Assertions.assertTrue(bookProjection.authorNames().isEmpty());
+                })
+                .expectNextCount(1)
+                .assertNext(bookProjection -> {
+                    Assertions.assertEquals("Los ríos profundos", bookProjection.title());
+                    Assertions.assertEquals(LocalDate.parse("1999-01-15"), bookProjection.publicationDate());
+                    Assertions.assertTrue(bookProjection.onlineAvailability());
+                    Assertions.assertNotNull(bookProjection.authors());
+                    Assertions.assertFalse(bookProjection.authorNames().isEmpty());
+                    Assertions.assertEquals(2, bookProjection.authorNames().size());
+                })
+                .expectNextCount(1)
+                .verifyComplete();
+    }
+
 }
 ````
