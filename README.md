@@ -825,6 +825,386 @@ public record AuthorCriteria(String firstName, String lastName) {
 }
 ````
 
+## 🛠️ DAO personalizado con `R2dbcEntityTemplate`: `AuthorDaoImpl`
+
+Este `DAO` implementa una lógica de consulta dinámica para la entidad `Author`, utilizando `R2dbcEntityTemplate`,
+una alternativa programática y orientada a objetos a las consultas `SQL manuales`.
+
+> Su uso es comparable al `EntityManager` en `JPA`, pero en el contexto de `Spring Data R2DBC` y programación reactiva.
+> Es decir en `JPA` utilizamos `EntityManager`
+> [(spring-data-jpa-criteria-queries)](https://github.com/magadiflo/spring-data-jpa-criteria-queries/blob/main/src/main/java/dev/magadiflo/criteria_queries/persistence/dao/EmployeeSearchDao.java)
+> mientras que aquí en `Spring Data R2DBC` y programación reactiva usamos `R2dbcEntityTemplate`.
+
+````java
+public interface AuthorDao {
+    Flux<Author> findAuthorByCriteria(AuthorCriteria authorCriteria);
+}
+````
+
+Define una operación de búsqueda que recibe un objeto `AuthorCriteria` con los posibles filtros (nombre y apellido del
+autor).
+
+````java
+import org.springframework.data.relational.core.query.Criteria;
+
+@RequiredArgsConstructor
+@Repository
+public class AuthorDaoImpl implements AuthorDao {
+
+    private final R2dbcEntityTemplate template;
+
+    @Override
+    public Flux<Author> findAuthorByCriteria(AuthorCriteria authorCriteria) {
+        Criteria criteria = Criteria.empty();
+
+        if (Objects.nonNull(authorCriteria.firstName()) && !authorCriteria.firstName().trim().isEmpty()) {
+            Criteria likeFirstName = Criteria.where("first_name").like(this.likePattern(authorCriteria.firstName()));
+            criteria = criteria.and(likeFirstName);
+        }
+
+        if (Objects.nonNull(authorCriteria.lastName()) && !authorCriteria.lastName().trim().isEmpty()) {
+            Criteria likeLastName = Criteria.where("last_name").like(this.likePattern(authorCriteria.lastName()));
+            criteria = criteria.and(likeLastName);
+        }
+
+        Query query = Query.query(criteria);
+
+        return this.template
+                .select(Author.class)
+                .matching(query)
+                .all();
+    }
+
+    private String likePattern(String value) {
+        return "%" + value.trim() + "%";
+    }
+}
+````
+
+### ⚙️ ¿Qué hace esta clase?
+
+- Usa `R2dbcEntityTemplate` para construir y ejecutar consultas reactivas sin necesidad de escribir SQL.
+- La lógica de filtrado es dinámica:
+    - Si el `firstName` o `lastName` está presente en el `AuthorCriteria`, se aplica una cláusula `LIKE`.
+    - Los filtros se combinan mediante `Criteria` (una clase propia de `Spring Data R2DBC`).
+- Finalmente, se ejecuta la consulta con `.select(...).matching(query).all()` y se retorna un `Flux<Author>`.
+
+### 💡 Ventajas del uso de `R2dbcEntityTemplate`
+
+- Permite construir consultas más expresivas y legibles usando clases en lugar de strings SQL.
+- Evita errores comunes de SQL al construir las queries de forma programática.
+- Ideal para escenarios donde se requiere construir filtros condicionales y consultas dinámicas.
+- Conserva el enfoque reactivo de extremo a extremo.
+
+### ⚠️ Limitaciones de `R2dbcEntityTemplate`
+
+Aunque `R2dbcEntityTemplate` facilita la construcción de consultas reactivas de manera programática, tiene algunas
+limitaciones importantes:
+
+- `Solo opera sobre una única entidad a la vez`: No permite realizar `joins` entre tablas directamente como lo harías
+  con `SQL nativo` o con `DatabaseClient`. Esto significa que si necesitas combinar datos de varias entidades
+  (por ejemplo, `Author` con `Book`), deberás:
+    - Hacer múltiples consultas separadas.
+    - O recurrir a `DatabaseClient` y construir una consulta SQL manual.
+
+
+- `Falta de soporte para expresiones más complejas`: Las operaciones avanzadas como `subconsultas`, `GROUP BY`,
+  `HAVING`, `funciones agregadas`, etc., están fuera del alcance del `API de Criteria`.
+
+## 🛠️ DAO personalizado con `DatabaseClient`: `BookAuthorDaoImpl`
+
+Este DAO implementa múltiples operaciones personalizadas para gestionar la relación entre `libros` y `autores`
+(`book_authors`) utilizando `DatabaseClient`, un componente de bajo nivel en `Spring Data R2DBC` que permite ejecutar
+consultas `SQL nativas` de forma reactiva.
+
+> Podemos considerar a `DatabaseClient` como el equivalente reactivo de `JdbcTemplate`
+> [(spring-data-jdbc-template-crud-api-rest):](https://github.com/magadiflo/spring-data-jdbc-template-crud-api-rest/blob/main/src/main/java/com/magadiflo/jdbc/template/app/repository/impl/UserRepositoryImpl.java)
+> - En ambos casos se utiliza SQL nativo directamente para construir y ejecutar consultas.
+> - Tienes control total sobre la estructura de la consulta (SELECT, JOIN, GROUP BY, etc.).
+> - Los parámetros se enlazan de forma segura (:paramName en DatabaseClient, ? o :param en JdbcTemplate).
+> - Eres responsable de mapear manualmente los resultados (`RowMapper en JdbcTemplate`,
+    `Row + RowMetadata en DatabaseClient`).
+
+````java
+public interface BookAuthorDao {
+    Mono<Long> countBookAuthorByCriteria(BookCriteria bookCriteria);
+
+    Mono<Long> saveBookAuthor(BookAuthor bookAuthor);
+
+    Mono<Void> saveAllBookAuthor(List<BookAuthor> bookAuthorList);
+
+    Mono<Boolean> existBookAuthorByBookId(Integer bookId);
+
+    Mono<Boolean> existBookAuthorByAuthorId(Integer authorId);
+
+    Mono<Void> deleteBookAuthorByBookId(Integer bookId);
+
+    Mono<Void> deleteBookAuthorByAuthorId(Integer authorId);
+
+    Mono<BookProjection> findBookWithTheirAuthorsByBookId(Integer bookId);
+
+    Flux<BookProjection> findAllToPage(BookCriteria bookCriteria, Pageable pageable);
+}
+````
+
+### ⚙️ ¿Qué es DatabaseClient y por qué se usa?
+
+`DatabaseClient` proporciona una interfaz programática, flexible y orientada a SQL para ejecutar consultas directamente
+sobre la base de datos. Se utiliza en este DAO porque:
+
+- Permite escribir consultas SQL completamente personalizadas, incluyendo:
+    - Joins entre múltiples tablas.
+    - Uso de funciones agregadas como STRING_AGG.
+    - Subconsultas o estructuras complejas.
+    - Paginación (LIMIT, OFFSET).
+
+- Soporta binding de parámetros nombrados (`:param`) para prevenir inyecciones SQL y facilitar la reutilización.
+- Ofrece control total sobre el resultado: puedes mapear manualmente filas (`Row`) a cualquier tipo de objeto (como
+  `BookProjection`).
+- Es ideal para escenarios donde `R2dbcEntityTemplate` se queda corto, como cuando se necesita trabajar con múltiples
+  entidades o resultados no directamente relacionados con clases del modelo.
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@Repository
+public class BookAuthorDaoImpl implements BookAuthorDao {
+
+    private final DatabaseClient databaseClient;
+    private static final String BOOK_ID = "bookId";
+    private static final String AUTHOR_ID = "authorId";
+
+    @Override
+    public Mono<Long> countBookAuthorByCriteria(BookCriteria bookCriteria) {
+        String sql = this.buildCountSql(bookCriteria);
+        DatabaseClient.GenericExecuteSpec querySpec = this.databaseClient.sql(sql);
+        querySpec = this.bindCriteriaParameters(querySpec, bookCriteria);
+        return querySpec
+                .map((row, rowMetadata) -> row.get("total", Long.class))
+                .one();
+    }
+
+    @Override
+    public Mono<Long> saveBookAuthor(BookAuthor bookAuthor) {
+        return this.rowsUpdatedAfterInsert(bookAuthor);
+    }
+
+    @Override
+    public Mono<Void> saveAllBookAuthor(List<BookAuthor> bookAuthorList) {
+        return Flux.fromIterable(bookAuthorList)
+                .flatMap(this::rowsUpdatedAfterInsert)
+                .then();
+    }
+
+    @Override
+    public Mono<Boolean> existBookAuthorByBookId(Integer bookId) {
+        String sql = """
+                SELECT EXISTS(
+                    SELECT 1
+                    FROM book_authors AS ba
+                    WHERE ba.book_id = :bookId
+                ) AS result
+                """;
+        return this.databaseClient
+                .sql(sql)
+                .bind(BOOK_ID, bookId)
+                .map((row, rowMetadata) -> row.get("result", Boolean.class))
+                .one();
+    }
+
+    @Override
+    public Mono<Boolean> existBookAuthorByAuthorId(Integer authorId) {
+        String sql = """
+                SELECT EXISTS(
+                    SELECT 1
+                    FROM book_authors AS ba
+                    WHERE ba.author_id = :authorId
+                ) AS result
+                """;
+        return this.databaseClient
+                .sql(sql)
+                .bind(AUTHOR_ID, authorId)
+                .map((row, rowMetadata) -> row.get("result", Boolean.class))
+                .one();
+    }
+
+    @Override
+    public Mono<Void> deleteBookAuthorByBookId(Integer bookId) {
+        String sql = """
+                DELETE FROM book_authors
+                WHERE book_id = :bookId
+                """;
+        return this.databaseClient
+                .sql(sql)
+                .bind(BOOK_ID, bookId)
+                .then();
+    }
+
+    @Override
+    public Mono<Void> deleteBookAuthorByAuthorId(Integer authorId) {
+        String sql = """
+                DELETE FROM book_authors
+                WHERE author_id = :authorId
+                """;
+        return this.databaseClient
+                .sql(sql)
+                .bind(AUTHOR_ID, authorId)
+                .then();
+    }
+
+    @Override
+    public Mono<BookProjection> findBookWithTheirAuthorsByBookId(Integer bookId) {
+        String sql = """
+                SELECT b.title,
+                        b.publication_date,
+                        b.online_availability,
+                        STRING_AGG(a.first_name||' '||a.last_name, ', ') as concat_authors
+                FROM books AS b
+                    LEFT JOIN book_authors AS ba ON(b.id = ba.book_id)
+                    LEFT JOIN authors AS a ON(ba.author_id = a.id)
+                WHERE b.id = :bookId
+                GROUP BY b.title,
+                        b.publication_date,
+                        b.online_availability
+                """;
+        return this.databaseClient
+                .sql(sql)
+                .bind(BOOK_ID, bookId)
+                .map(this.mappingBookProjection())
+                .one();
+    }
+
+    @Override
+    public Flux<BookProjection> findAllToPage(BookCriteria bookCriteria, Pageable pageable) {
+        String sql = this.buildDetailSql(bookCriteria);
+        DatabaseClient.GenericExecuteSpec querySpec = this.databaseClient.sql(sql);
+        querySpec = this.bindCriteriaParameters(querySpec, bookCriteria);
+        querySpec = querySpec
+                .bind("limit", pageable.getPageSize())
+                .bind("offset", pageable.getOffset());
+        return querySpec
+                .map(this.mappingBookProjection())
+                .all();
+    }
+
+    private BiFunction<Row, RowMetadata, BookProjection> mappingBookProjection() {
+        return (row, rowMetadata) -> new BookProjection(
+                row.get("title", String.class),
+                row.get("publication_date", LocalDate.class),
+                row.get("online_availability", Boolean.class),
+                row.get("concat_authors", String.class)
+        );
+    }
+
+    private Mono<Long> rowsUpdatedAfterInsert(BookAuthor bookAuthor) {
+        String sql = """
+                INSERT INTO book_authors(book_id, author_id)
+                VALUES(:bookId, :authorId)
+                """;
+        return this.databaseClient
+                .sql(sql)
+                .bind(BOOK_ID, bookAuthor.getBookId())
+                .bind(AUTHOR_ID, bookAuthor.getAuthorId())
+                .fetch()
+                .rowsUpdated();
+    }
+
+    private String buildDetailSql(BookCriteria bookCriteria) {
+        StringBuilder sql = new StringBuilder("""
+                SELECT b.title,
+                        b.publication_date,
+                        b.online_availability,
+                        STRING_AGG(a.first_name||' '||a.last_name, ', ') as concat_authors
+                FROM books AS b
+                    LEFT JOIN book_authors AS ba ON(b.id = ba.book_id)
+                    LEFT JOIN authors AS a ON(ba.author_id = a.id)
+                """);
+        sql.append(this.buildWhereClause(bookCriteria));
+        sql.append("""
+                GROUP BY b.title,
+                        b.publication_date,
+                        b.online_availability
+                ORDER BY b.title
+                LIMIT :limit
+                OFFSET :offset
+                """);
+        return sql.toString();
+    }
+
+    private String buildCountSql(BookCriteria bookCriteria) {
+        StringBuilder sql = new StringBuilder("""
+                SELECT COUNT(*) AS total
+                FROM (
+                    SELECT b.id
+                    FROM books AS b
+                    LEFT JOIN book_authors AS ba ON (b.id = ba.book_id)
+                    LEFT JOIN authors AS a ON (ba.author_id = a.id)
+                """);
+        sql.append(this.buildWhereClause(bookCriteria));
+        sql.append("""
+                    GROUP BY b.id
+                ) AS unique_books
+                """);
+        return sql.toString();
+    }
+
+    private String buildWhereClause(BookCriteria bookCriteria) {
+        List<String> conditions = new ArrayList<>();
+
+        if (bookCriteria.hasQuery()) {
+            conditions.add("""
+                    (
+                        LOWER(b.title) LIKE LOWER(:query)
+                        OR LOWER(a.first_name) LIKE LOWER(:query)
+                        OR LOWER(a.last_name) LIKE LOWER(:query)
+                    )
+                    """);
+        }
+
+        if (bookCriteria.hasPublicationDate()) {
+            conditions.add("b.publication_date = :publicationDate");
+        }
+
+        if (conditions.isEmpty()) {
+            return "";
+        }
+
+        return "WHERE %s%n".formatted(String.join(" AND ", conditions));
+    }
+
+    private DatabaseClient.GenericExecuteSpec bindCriteriaParameters(DatabaseClient.GenericExecuteSpec spec, BookCriteria bookCriteria) {
+        if (bookCriteria.hasQuery()) {
+            String likePattern = "%" + bookCriteria.query().trim() + "%";
+            spec = spec.bind("query", likePattern);
+        }
+
+        if (bookCriteria.hasPublicationDate()) {
+            spec = spec.bind("publicationDate", bookCriteria.publicationDate());
+        }
+        return spec;
+    }
+}
+````
+
+## ⚖️ Comparación: `R2dbcEntityTemplate` vs. `DatabaseClient`
+
+| Característica               | `R2dbcEntityTemplate`                    | `DatabaseClient`                                 |
+|------------------------------|------------------------------------------|--------------------------------------------------|
+| 🔍 Nivel de abstracción      | Alto (orientado a entidades)             | Bajo (SQL nativo)                                |
+| 🧱 Tipo de consulta          | Programática (Criteria API)              | SQL manual                                       |
+| 🤝 Soporte para joins        | ❌ No                                     | ✅ Sí                                             |
+| 🎯 Uso típico                | Consultas simples sobre una sola entidad | Consultas complejas, joins, vistas, proyecciones |
+| 🧑‍💻 Control sobre SQL      | Limitado                                 | Total                                            |
+| 🧩 Símil en stack bloqueante | `EntityManager` (JPA)                    | `JdbcTemplate`                                   |
+
+### 📝 ¿Cuándo usar cada uno?
+
+- Usa `R2dbcEntityTemplate` cuando necesitas construir consultas reactivas simples, con filtros dinámicos sobre una sola
+  entidad, sin necesidad de escribir SQL directamente.
+- Usa `DatabaseClient` cuando necesitas mayor flexibilidad, trabajar con múltiples tablas, funciones agregadas,
+  paginación avanzada o SQL personalizado.
+
 ## Creando Servicios
 
 Definimos la interfaz para la entidad `Author`.
