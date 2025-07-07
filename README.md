@@ -1241,6 +1241,64 @@ public class BookAuthorDaoImpl implements BookAuthorDao {
 - Usa `DatabaseClient` cuando necesitas mayor flexibilidad, trabajar con múltiples tablas, funciones agregadas,
   paginación avanzada o SQL personalizado.
 
+## 🔄 Mapper con MapStruct
+
+Creamos la interfaz `BookMapper` para realizar la conversión (`mapping`) entre diferentes tipos de objetos
+relacionados con la entidad `Book`. Utiliza `MapStruct`, un generador de código de mapeo que crea implementaciones
+en tiempo de compilación, evitando así la necesidad de escribir conversiones manuales.
+
+Este mapper en particular realiza:
+
+- Conversión de entidad `Book` a `DTO` de respuesta (`BookResponse`).
+- Conversión de `DTO` de entrada (`BookRequest`) a entidad `Book`.
+- Actualización parcial de una entidad `Book` a partir de un `DTO` de actualización (`BookUpdateRequest`), ignorando el
+  campo id.
+
+### 🏷️ Anotaciones utilizadas
+
+`@Mapper(componentModel = MappingConstants.ComponentModel.SPRING)`
+
+- Indica que esta interfaz es un mapper de `MapStruct`.
+- `componentModel = "spring"` permite que la implementación generada sea un `bean` de `Spring`, de modo que pueda ser
+  inyectada con `@Autowired` o `@RequiredArgsConstructor`.
+
+`@Mapping(target = "id", ignore = true)`
+
+- Se aplica al método `toBookUpdate`.
+- Indica que el campo `id` de la entidad `Book` no debe ser sobrescrito durante el mapeo desde el `DTO`.
+- Es útil cuando actualizamos una entidad existente, pero queremos conservar su identificador.
+
+`@MappingTarget`
+
+- Apunta al parámetro que se va a modificar directamente durante el mapeo.
+- En este caso, permite que book sea actualizado en lugar de crear un nuevo objeto.
+- Es ideal para operaciones `PUT` o `PATCH` donde actualizas una entidad persistente.
+
+````java
+
+@Mapper(componentModel = MappingConstants.ComponentModel.SPRING)
+public interface BookMapper {
+    BookResponse toBookResponse(Book book);
+
+    Book toBook(BookRequest bookRequest);
+
+    @Mapping(target = "id", ignore = true)
+    Book toBookUpdate(@MappingTarget Book book, BookUpdateRequest bookUpdateRequest);
+}
+````
+
+Para el mapeo de la entidad Author con su dto también definimos mapeador (`AuthorMapper`).
+
+````java
+
+@Mapper(componentModel = MappingConstants.ComponentModel.SPRING)
+public interface AuthorMapper {
+    AuthorResponse toAuthorResponse(Author author);
+
+    Author toAuthor(AuthorRequest authorRequest);
+}
+````
+
 ## Creando Servicios
 
 Definimos la interfaz para la entidad `Author`.
