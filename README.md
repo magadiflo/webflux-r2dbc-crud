@@ -1382,6 +1382,108 @@ public class InvalidInputException extends RuntimeException {
 }
 ````
 
+## 🧱 Manejo global de excepciones HTTP: `ApplicationExceptionHandler`
+
+`ApplicationExceptionHandler` es una clase anotada con `@RestControllerAdvice` que actúa como manejador global de
+excepciones para toda la aplicación `WebFlux`.
+
+Su responsabilidad principal es interceptar excepciones personalizadas o comunes, y transformarlas en respuestas HTTP
+con estructura clara y uniforme, usando el tipo `ProblemDetail`, definido en `spring-web`.
+
+### 🧩 ¿Qué hace?
+
+- Captura excepciones lanzadas desde controladores y servicios (como `AuthorNotFoundException`, `InvalidInputException`,
+  etc.).
+- Crea una instancia de `ProblemDetail` que representa un error HTTP estructurado.
+- Devuelve la excepción traducida como `ResponseEntity<ProblemDetail>` con el código de estado correspondiente (`404`,
+  `400`, `500`, etc.).
+- Añade detalles adicionales como:
+    - `title`: resumen del error.
+    - `detail`: mensaje técnico de la excepción.
+    - Propiedades adicionales como `errors` en caso de validación.
+
+````java
+
+@Slf4j
+@RestControllerAdvice
+public class ApplicationExceptionHandler {
+
+    @ExceptionHandler(AuthorNotFoundException.class)
+    public Mono<ResponseEntity<ProblemDetail>> handleException(AuthorNotFoundException exception) {
+        ProblemDetail problemDetail = this.build(HttpStatus.NOT_FOUND, exception, detail -> {
+            detail.setTitle("Autor no encontrado");
+        });
+        return Mono.just(ResponseEntity.status(HttpStatus.NOT_FOUND).body(problemDetail));
+    }
+
+    @ExceptionHandler(InvalidInputException.class)
+    public Mono<ResponseEntity<ProblemDetail>> handleException(InvalidInputException exception) {
+        ProblemDetail problemDetail = this.build(HttpStatus.BAD_REQUEST, exception, detail -> {
+            detail.setTitle("Entrada no válida");
+        });
+        return Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail));
+    }
+
+    @ExceptionHandler(ServerWebInputException.class)
+    public Mono<ResponseEntity<ProblemDetail>> handleDecodingException(ServerWebInputException exception) {
+        ProblemDetail problemDetail = this.build(HttpStatus.BAD_REQUEST, exception, detail -> {
+            detail.setTitle("Error de formato de la petición");
+            log.info("{}", exception.getMostSpecificCause().getMessage());
+        });
+        return Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail));
+    }
+
+    @ExceptionHandler(AuthorIdsNotFoundException.class)
+    public Mono<ResponseEntity<ProblemDetail>> handleException(AuthorIdsNotFoundException exception) {
+        ProblemDetail problemDetail = this.build(HttpStatus.NOT_FOUND, exception, detail -> {
+            detail.setTitle("Autor no encontrado");
+        });
+        return Mono.just(ResponseEntity.status(HttpStatus.NOT_FOUND).body(problemDetail));
+    }
+
+    @ExceptionHandler(BookNotFoundException.class)
+    public Mono<ResponseEntity<ProblemDetail>> handleException(BookNotFoundException exception) {
+        ProblemDetail problemDetail = this.build(HttpStatus.NOT_FOUND, exception, detail -> {
+            detail.setTitle("Libro no encontrado");
+        });
+        return Mono.just(ResponseEntity.status(HttpStatus.NOT_FOUND).body(problemDetail));
+    }
+
+    @ExceptionHandler(WebExchangeBindException.class)
+    public Mono<ResponseEntity<ProblemDetail>> handleException(WebExchangeBindException exception) {
+        Map<String, List<String>> errors = exception.getBindingResult().getFieldErrors().stream()
+                .collect(Collectors.groupingBy(
+                        FieldError::getField,
+                        Collectors.mapping(
+                                DefaultMessageSourceResolvable::getDefaultMessage,
+                                Collectors.toList()
+                        )
+                ));
+        ProblemDetail problemDetail = this.build(HttpStatus.BAD_REQUEST, exception, detail -> {
+            detail.setTitle("El cuerpo de la petición contiene valores no válidos");
+            detail.setDetail(exception.getReason());
+            detail.setProperty("errors", errors);
+        });
+        return Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail));
+    }
+
+    @ExceptionHandler(Exception.class)
+    public Mono<ResponseEntity<ProblemDetail>> handleException(Exception exception) {
+        ProblemDetail problemDetail = this.build(HttpStatus.INTERNAL_SERVER_ERROR, exception, detail -> {
+            detail.setTitle("Se produjo un error interno en el servidor");
+        });
+        return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(problemDetail));
+    }
+
+    private ProblemDetail build(HttpStatus status, Exception exception, Consumer<ProblemDetail> detailConsumer) {
+        log.info("{}", exception.getMessage());
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(status, exception.getMessage());
+        detailConsumer.accept(problemDetail);
+        return problemDetail;
+    }
+}
+````
+
 ## Creando Servicios
 
 Definimos la interfaz para la entidad `Author`.
