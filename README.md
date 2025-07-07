@@ -1484,9 +1484,15 @@ public class ApplicationExceptionHandler {
 }
 ````
 
-## Creando Servicios
+## 🧩 Servicio de dominio: `AuthorService`
 
-Definimos la interfaz para la entidad `Author`.
+La interfaz `AuthorService` define las operaciones principales del dominio `Author`, desacoplando la lógica de negocio
+de su implementación. Proporciona soporte para:
+
+- Listado total de autores.
+- Búsqueda por ID con proyección.
+- Paginación con filtros.
+- Creación, actualización y eliminación de autores.
 
 ````java
 public interface AuthorService {
@@ -1496,15 +1502,33 @@ public interface AuthorService {
 
     Mono<Page<AuthorProjection>> getAllAuthorsToPage(String query, int pageNumber, int pageSize);
 
-    Mono<Integer> saveAuthor(Mono<AuthorRequest> authorRequestMono);
+    Mono<Integer> saveAuthor(AuthorRequest authorRequest);
 
-    Mono<AuthorProjection> updateAuthor(Integer authorId, Mono<AuthorRequest> authorRequestMono);
+    Mono<AuthorProjection> updateAuthor(Integer authorId, AuthorRequest authorRequest);
 
     Mono<Boolean> deleteAuthor(Integer authorId);
 }
 ````
 
-Implementamos la clase de servicio `AuthorServiceImpl`.
+La clase `AuthorServiceImpl` contiene la lógica de negocio reactiva para trabajar con autores, apoyándose en
+componentes como:
+
+- `AuthorRepository`: acceso principal a la base de datos.
+- `BookAuthorDao`: verificación y eliminación de relaciones entre libros y autores.
+- `AuthorMapper`: conversión entre entidades y DTOs.
+
+### 🔍 Comportamientos destacados
+
+- `Lectura reactiva y eficiente`: métodos como `findAllAuthors()` o `getAllAuthorsToPage()` devuelven flujos
+  (`Flux` / `Mono`) desde repositorios, manteniendo la naturaleza no bloqueante de `WebFlux`.
+- `Paginación con conteo total`: se utiliza `Mono.zip(...)` para `obtener simultáneamente` la lista paginada y el total
+  de resultados, y luego se construye un objeto `PageImpl`.
+- `Validación de existencia`: se centraliza la validación de existencia con
+  `switchIfEmpty(ApplicationExceptions.authorNotFound(...))`, asegurando respuestas consistentes.
+- `Mapeo de DTOs`: se usa `AuthorMapper` para convertir entre `AuthorRequest` y `Author`, separando claramente las
+  capas.
+- `Eliminación con relación`: al eliminar un autor, se verifica si tiene libros relacionados. Si los tiene, se eliminan
+  primero de la tabla intermedia (`book_authors`) antes de eliminar el autor.
 
 ````java
 
@@ -1514,6 +1538,7 @@ Implementamos la clase de servicio `AuthorServiceImpl`.
 public class AuthorServiceImpl implements AuthorService {
 
     private final AuthorRepository authorRepository;
+    private final BookAuthorDao bookAuthorDao;
     private final AuthorMapper authorMapper;
 
     @Override
@@ -1543,18 +1568,16 @@ public class AuthorServiceImpl implements AuthorService {
 
     @Override
     @Transactional
-    public Mono<Integer> saveAuthor(Mono<AuthorRequest> authorRequestMono) {
-        return authorRequestMono
-                .map(this.authorMapper::toAuthor)
+    public Mono<Integer> saveAuthor(AuthorRequest authorRequest) {
+        return Mono.fromSupplier(() -> this.authorMapper.toAuthor(authorRequest))
                 .flatMap(this.authorRepository::saveAuthor);
     }
 
     @Override
     @Transactional
-    public Mono<AuthorProjection> updateAuthor(Integer authorId, Mono<AuthorRequest> authorRequestMono) {
+    public Mono<AuthorProjection> updateAuthor(Integer authorId, AuthorRequest authorRequest) {
         return this.authorRepository.findById(authorId)
-                .flatMap(author -> authorRequestMono)
-                .map(this.authorMapper::toAuthor)
+                .map(author -> this.authorMapper.toAuthor(authorRequest))
                 .doOnNext(author -> author.setId(authorId))
                 .flatMap(this.authorRepository::updateAuthor)
                 .flatMap(affectedRows -> this.authorRepository.findAuthorById(authorId))
@@ -1565,8 +1588,10 @@ public class AuthorServiceImpl implements AuthorService {
     @Transactional
     public Mono<Boolean> deleteAuthor(Integer authorId) {
         return this.authorRepository.findById(authorId)
-                .flatMap(author -> this.authorRepository.deleteAuthorById(authorId))
-                .switchIfEmpty(ApplicationExceptions.authorNotFound(authorId));
+                .switchIfEmpty(ApplicationExceptions.authorNotFound(authorId))
+                .flatMap(author -> this.bookAuthorDao.existBookAuthorByAuthorId(authorId))
+                .flatMap(hasBooks -> Boolean.TRUE.equals(hasBooks) ? this.bookAuthorDao.deleteBookAuthorByAuthorId(authorId) : Mono.empty())
+                .then(this.authorRepository.deleteAuthorById(authorId));
     }
 }
 ````
